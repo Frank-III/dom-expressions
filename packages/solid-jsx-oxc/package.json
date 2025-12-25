@@ -1,0 +1,50 @@
+{
+  "name": "solid-jsx-oxc",
+  "version": "0.1.0",
+  "description": "OXC-based JSX compiler for SolidJS",
+  "main": "index.js",
+  "types": "index.d.ts",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ryansolid/dom-expressions"
+  },
+  "keywords": [
+    "solid",
+    "solidjs",
+    "jsx",
+    "compiler",
+    "oxc",
+    "rust"
+  ],
+  "author": "SolidJS Contributors",
+  "license": "MIT",
+  "napi": {
+    "name": "solid-jsx-oxc",
+    "triples": {
+      "additional": [
+        "aarch64-apple-darwin",
+        "aarch64-unknown-linux-gnu",
+        "aarch64-unknown-linux-musl",
+        "aarch64-pc-windows-msvc",
+        "x86_64-unknown-linux-musl",
+        "x86_64-unknown-freebsd",
+        "i686-pc-windows-msvc",
+        "armv7-unknown-linux-gnueabihf"
+      ]
+    }
+  },
+  "scripts": {
+    "artifacts": "napi artifacts",
+    "build": "napi build --platform --release",
+    "build:debug": "napi build --platform",
+    "prepublishOnly": "napi prepublish -t npm",
+    "test": "cargo test",
+    "bench": "cargo bench"
+  },
+  "devDependencies": {
+    "@napi-rs/cli": "^3.0.0-alpha.69"
+  },
+  "engines": {
+    "node": ">= 18"
+  }
+}
