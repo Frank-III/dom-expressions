@@ -5,7 +5,8 @@
 use oxc_allocator::Allocator;
 use oxc_ast::ast::{
     Expression, JSXElement, JSXFragment, JSXChild, JSXExpressionContainer,
-    JSXText, Program,
+    JSXText, Program, Statement, ImportOrExportKind, ModuleExportName,
+    ImportDeclarationSpecifier,
 };
 use oxc_span::Span;
 use oxc_traverse::{Traverse, TraverseCtx, traverse_mut};
@@ -157,10 +158,56 @@ impl<'a> Traverse<'a, ()> for SSRTransform<'a> {
         }
     }
 
-    fn exit_program(&mut self, _program: &mut Program<'a>, _ctx: &mut TraverseCtx<'a, ()>) {
-        // Generate imports for helpers at the top of the file
-        let _helpers = self.context.helpers.borrow();
-        // TODO: Insert import statements
+    fn exit_program(&mut self, program: &mut Program<'a>, ctx: &mut TraverseCtx<'a, ()>) {
+        // Get the helpers that were used
+        let helpers = self.context.helpers.borrow();
+
+        if helpers.is_empty() {
+            return;
+        }
+
+        // Build import statement: import { ssr, escape, ... } from 'solid-js/web';
+        let ast = ctx.ast;
+        let span = Span::default();
+        let module_name = self.options.module_name;
+
+        // Build specifiers
+        let mut specifiers = ast.vec();
+        for helper in helpers.iter() {
+            let helper_str = ast.allocator.alloc_str(helper);
+            let imported = ModuleExportName::IdentifierName(
+                ast.identifier_name(span, helper_str)
+            );
+            let local = ast.binding_identifier(span, helper_str);
+            let specifier = ast.import_specifier(
+                span,
+                imported,
+                local,
+                ImportOrExportKind::Value,
+            );
+            specifiers.push(ImportDeclarationSpecifier::ImportSpecifier(
+                ast.alloc(specifier)
+            ));
+        }
+
+        // Build source string literal
+        let source = ast.string_literal(span, module_name, None);
+
+        // Build import declaration
+        let import_decl = ast.import_declaration(
+            span,
+            Some(specifiers),
+            source,
+            None, // phase
+            None::<oxc_ast::ast::WithClause<'a>>, // with_clause
+            ImportOrExportKind::Value,
+        );
+
+        // Create the statement
+        let import_stmt = Statement::ImportDeclaration(ast.alloc(import_decl));
+
+        // Insert at the beginning of the program
+        program.body.insert(0, import_stmt);
     }
 }
 
