@@ -2,7 +2,7 @@
 //! Handles <MyComponent /> -> createComponent(MyComponent, {...})
 
 use oxc_ast::ast::{
-    JSXElement, JSXAttribute, JSXAttributeItem, JSXAttributeName,
+    JSXElement, JSXAttributeItem, JSXAttributeName,
     JSXAttributeValue, JSXChild,
 };
 
@@ -90,7 +90,7 @@ fn transform_for<'a, 'b>(
     _transform_child: ChildTransformer<'a, 'b>,
 ) {
     context.register_helper("createComponent");
-    context.register_helper("For");
+    // Note: For is expected to be imported by user from solid-js, not added here
 
     let each_expr = get_prop_expr(element, "each");
     let children = get_children_callback(element);
@@ -111,7 +111,7 @@ fn transform_show<'a, 'b>(
     transform_child: ChildTransformer<'a, 'b>,
 ) {
     context.register_helper("createComponent");
-    context.register_helper("Show");
+    // Note: Show is expected to be imported by user from solid-js
 
     let when_expr = get_prop_expr(element, "when");
     let fallback_expr = get_prop_expr(element, "fallback");
@@ -133,7 +133,7 @@ fn transform_switch<'a, 'b>(
     transform_child: ChildTransformer<'a, 'b>,
 ) {
     context.register_helper("createComponent");
-    context.register_helper("Switch");
+    // Note: Switch is expected to be imported by user from solid-js
 
     let children = get_children_expr_transformed(element, context, transform_child);
 
@@ -153,7 +153,7 @@ fn transform_match<'a, 'b>(
     transform_child: ChildTransformer<'a, 'b>,
 ) {
     context.register_helper("createComponent");
-    context.register_helper("Match");
+    // Note: Match is expected to be imported by user from solid-js
 
     let when_expr = get_prop_expr(element, "when");
     let children = get_children_expr_transformed(element, context, transform_child);
@@ -174,7 +174,7 @@ fn transform_index<'a, 'b>(
     _transform_child: ChildTransformer<'a, 'b>,
 ) {
     context.register_helper("createComponent");
-    context.register_helper("Index");
+    // Note: Index is expected to be imported by user from solid-js
 
     let each_expr = get_prop_expr(element, "each");
     let children = get_children_callback(element);
@@ -195,7 +195,7 @@ fn transform_suspense<'a, 'b>(
     transform_child: ChildTransformer<'a, 'b>,
 ) {
     context.register_helper("createComponent");
-    context.register_helper("Suspense");
+    // Note: Suspense is expected to be imported by user from solid-js
 
     let fallback_expr = get_prop_expr(element, "fallback");
     let children = get_children_expr_transformed(element, context, transform_child);
@@ -216,7 +216,7 @@ fn transform_portal<'a, 'b>(
     transform_child: ChildTransformer<'a, 'b>,
 ) {
     context.register_helper("createComponent");
-    context.register_helper("Portal");
+    // Note: Portal is expected to be imported by user from solid-js/web
 
     let mount_expr = get_prop_expr(element, "mount");
     let children = get_children_expr_transformed(element, context, transform_child);
@@ -238,7 +238,7 @@ fn transform_dynamic<'a, 'b>(
     transform_child: ChildTransformer<'a, 'b>,
 ) {
     context.register_helper("createComponent");
-    context.register_helper("Dynamic");
+    // Note: Dynamic is expected to be imported by user from solid-js/web
 
     let component_expr = get_prop_expr(element, "component");
     let props = build_props(element, context, options, transform_child);
@@ -259,7 +259,7 @@ fn transform_error_boundary<'a, 'b>(
     transform_child: ChildTransformer<'a, 'b>,
 ) {
     context.register_helper("createComponent");
-    context.register_helper("ErrorBoundary");
+    // Note: ErrorBoundary is expected to be imported by user from solid-js
 
     let fallback_expr = get_prop_expr(element, "fallback");
     let children = get_children_expr_transformed(element, context, transform_child);

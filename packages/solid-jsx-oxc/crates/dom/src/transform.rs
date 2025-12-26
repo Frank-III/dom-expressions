@@ -95,14 +95,15 @@ impl<'a> SolidTransform<'a> {
     ) -> TransformResult {
         let tag_name = get_tag_name(element);
 
+        // Create child transformer closure that can recursively transform children
+        let child_transformer = |child: &JSXChild<'a>| -> Option<TransformResult> {
+            self.transform_node(child, info)
+        };
+
         if is_component(&tag_name) {
-            // Create child transformer closure that can recursively transform children
-            let child_transformer = |child: &JSXChild<'a>| -> Option<TransformResult> {
-                self.transform_node(child, info)
-            };
             transform_component(element, &tag_name, &self.context, self.options, &child_transformer)
         } else {
-            transform_element(element, &tag_name, info, &self.context, self.options)
+            transform_element(element, &tag_name, info, &self.context, self.options, &child_transformer)
         }
     }
 
@@ -206,11 +207,16 @@ impl<'a> SolidTransform<'a> {
             // Add dynamic bindings
             for binding in &result.dynamics {
                 self.context.register_helper("effect");
-                self.context.register_helper("setAttribute");
-                code.push_str(&format!(
-                    "  effect(() => setAttribute({}, \"{}\", {}));\n",
-                    binding.elem, binding.key, binding.value
-                ));
+                // Register the appropriate helper based on binding key
+                if binding.key == "style" {
+                    self.context.register_helper("style");
+                } else if binding.key == "classList" {
+                    self.context.register_helper("classList");
+                } else {
+                    self.context.register_helper("setAttribute");
+                }
+                let setter = crate::template::generate_set_attr(binding);
+                code.push_str(&format!("  effect(() => {});\n", setter));
             }
 
             code.push_str(&format!("  return {};\n", elem_var));

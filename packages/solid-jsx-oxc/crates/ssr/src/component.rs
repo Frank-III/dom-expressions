@@ -98,9 +98,12 @@ fn transform_builtin<'a, 'b>(
     context.register_helper("createComponent");
     context.register_helper("escape");
 
+    // Note: Built-in components (For, Show, Switch, Match, Index, Suspense, Portal, Dynamic, ErrorBoundary)
+    // are expected to be imported by the user from solid-js or solid-js/web.
+    // We do NOT register them as helpers to avoid duplicate imports.
+
     match tag_name {
         "For" => {
-            context.register_helper("For");
             let each = find_prop_value(element, "each").unwrap_or("[]".to_string());
             let children = get_children_callback(element);
             result.push_dynamic(
@@ -111,7 +114,6 @@ fn transform_builtin<'a, 'b>(
         }
 
         "Show" => {
-            context.register_helper("Show");
             let when = find_prop_value(element, "when").unwrap_or("false".to_string());
             let fallback = find_prop_value(element, "fallback").unwrap_or("undefined".to_string());
             let children = get_children_ssr(element, transform_child);
@@ -123,7 +125,6 @@ fn transform_builtin<'a, 'b>(
         }
 
         "Switch" => {
-            context.register_helper("Switch");
             let children = get_children_ssr(element, transform_child);
             result.push_dynamic(
                 format!("createComponent(Switch, {{ children: {} }})", children),
@@ -133,7 +134,6 @@ fn transform_builtin<'a, 'b>(
         }
 
         "Match" => {
-            context.register_helper("Match");
             let when = find_prop_value(element, "when").unwrap_or("false".to_string());
             let children = get_children_ssr(element, transform_child);
             result.push_dynamic(
@@ -144,7 +144,6 @@ fn transform_builtin<'a, 'b>(
         }
 
         "Index" => {
-            context.register_helper("Index");
             let each = find_prop_value(element, "each").unwrap_or("[]".to_string());
             let children = get_children_callback(element);
             result.push_dynamic(
@@ -155,7 +154,6 @@ fn transform_builtin<'a, 'b>(
         }
 
         "Suspense" => {
-            context.register_helper("Suspense");
             let fallback = find_prop_value(element, "fallback").unwrap_or("undefined".to_string());
             let children = get_children_ssr(element, transform_child);
             result.push_dynamic(
@@ -167,7 +165,6 @@ fn transform_builtin<'a, 'b>(
 
         "Portal" => {
             // Portal in SSR just renders children (no mount target on server)
-            context.register_helper("Portal");
             let children = get_children_ssr(element, transform_child);
             result.push_dynamic(
                 format!("createComponent(Portal, {{ children: {} }})", children),
@@ -177,7 +174,6 @@ fn transform_builtin<'a, 'b>(
         }
 
         "Dynamic" => {
-            context.register_helper("Dynamic");
             let component = find_prop_value(element, "component").unwrap_or("undefined".to_string());
             result.push_dynamic(
                 format!("createComponent(Dynamic, {{ component: {} }})", component),
@@ -187,7 +183,6 @@ fn transform_builtin<'a, 'b>(
         }
 
         "ErrorBoundary" => {
-            context.register_helper("ErrorBoundary");
             let fallback = find_prop_value(element, "fallback").unwrap_or("undefined".to_string());
             let children = get_children_ssr(element, transform_child);
             result.push_dynamic(

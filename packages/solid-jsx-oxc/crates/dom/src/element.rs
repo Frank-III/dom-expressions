@@ -2,27 +2,28 @@
 //! Handles <div>, <span>, etc. -> template + effects
 
 use oxc_ast::ast::{
-    JSXElement, JSXAttribute, JSXAttributeItem, JSXAttributeName,
+    JSXElement, JSXAttribute, JSXAttributeItem,
     JSXAttributeValue,
 };
 
 use common::{
     TransformOptions,
-    is_svg_element, is_dynamic, expr_to_string, get_attr_name, is_namespaced_attr,
+    is_svg_element, is_dynamic, expr_to_string, get_attr_name, is_namespaced_attr, is_component,
     constants::{ALIASES, DELEGATED_EVENTS, VOID_ELEMENTS},
     expression::{escape_html, to_event_name},
 };
 
-use crate::ir::{BlockContext, TransformResult, Declaration, Expr, DynamicBinding};
+use crate::ir::{BlockContext, TransformResult, Declaration, Expr, DynamicBinding, ChildTransformer};
 use crate::transform::TransformInfo;
 
 /// Transform a native HTML/SVG element
-pub fn transform_element<'a>(
+pub fn transform_element<'a, 'b>(
     element: &JSXElement<'a>,
     tag_name: &str,
     info: &TransformInfo,
     context: &BlockContext,
     options: &TransformOptions<'a>,
+    transform_child: ChildTransformer<'a, 'b>,
 ) -> TransformResult {
     let is_svg = is_svg_element(tag_name);
     let is_void = VOID_ELEMENTS.contains(tag_name);
@@ -78,7 +79,7 @@ pub fn transform_element<'a>(
             },
             ..info.clone()
         };
-        transform_children(element, &mut result, &child_info, context, options);
+        transform_children(element, &mut result, &child_info, context, options, transform_child);
 
         // Close tag
         result.template.push_str(&format!("</{}>", tag_name));
@@ -90,6 +91,7 @@ pub fn transform_element<'a>(
 
 /// Check if an element needs runtime access
 fn element_needs_runtime_access(element: &JSXElement) -> bool {
+    // Check attributes
     for attr in &element.opening_element.attributes {
         match attr {
             JSXAttributeItem::Attribute(attr) => {
@@ -124,6 +126,25 @@ fn element_needs_runtime_access(element: &JSXElement) -> bool {
             }
         }
     }
+
+    // Check children for components or dynamic expressions
+    // If any child is a component, we need an ID for insert() calls
+    for child in &element.children {
+        match child {
+            oxc_ast::ast::JSXChild::Element(child_elem) => {
+                let child_tag = common::get_tag_name(child_elem);
+                if is_component(&child_tag) {
+                    return true;
+                }
+            }
+            oxc_ast::ast::JSXChild::ExpressionContainer(_) => {
+                // Dynamic children need insert()
+                return true;
+            }
+            _ => {}
+        }
+    }
+
     false
 }
 
@@ -182,6 +203,18 @@ fn transform_attribute<'a>(
 
     if key.starts_with("use:") {
         transform_directive(attr, &key, elem_id, result, context);
+        return;
+    }
+
+    // Handle prop: prefix - direct DOM property assignment
+    if key.starts_with("prop:") {
+        transform_prop(attr, &key, elem_id, result, context);
+        return;
+    }
+
+    // Handle attr: prefix - force attribute mode
+    if key.starts_with("attr:") {
+        transform_attr(attr, &key, elem_id, result, context);
         return;
     }
 
@@ -246,22 +279,26 @@ fn transform_ref<'a>(
     attr: &JSXAttribute<'a>,
     elem_id: &str,
     result: &mut TransformResult,
-    context: &BlockContext,
+    _context: &BlockContext,
 ) {
     if let Some(JSXAttributeValue::ExpressionContainer(container)) = &attr.value {
         if let Some(expr) = container.expression.as_expression() {
             let ref_expr = expr_to_string(expr);
-            // Check if it's a function or a variable
-            if ref_expr.contains("=>") || ref_expr.starts_with("(") {
-                // It's a callback: ref={el => myRef = el}
+            // Check if it's a function expression (arrow function or function expression)
+            if ref_expr.contains("=>") || ref_expr.starts_with("function") {
+                // It's an inline callback: ref={el => myRef = el}
+                // Just invoke it with the element
                 result.exprs.push(Expr {
-                    code: format!("typeof {} === \"function\" ? {}({}) : {} = {}",
-                        ref_expr, ref_expr, elem_id, ref_expr, elem_id),
+                    code: format!("({})({})", ref_expr, elem_id),
                 });
             } else {
-                // It's a variable: ref={myRef}
+                // It's a variable reference: ref={myRef}
+                // Could be a signal setter or plain variable - check at runtime
                 result.exprs.push(Expr {
-                    code: format!("{} = {}", ref_expr, elem_id),
+                    code: format!(
+                        "typeof {} === \"function\" ? {}({}) : {} = {}",
+                        ref_expr, ref_expr, elem_id, ref_expr, elem_id
+                    ),
                 });
             }
         }
@@ -277,7 +314,15 @@ fn transform_event<'a>(
     context: &BlockContext,
     options: &TransformOptions<'a>,
 ) {
-    let event_name = to_event_name(key);
+    // Check for capture mode (onClickCapture -> click with capture=true)
+    let is_capture = key.ends_with("Capture");
+    let base_key = if is_capture {
+        &key[..key.len() - 7] // Remove "Capture" suffix
+    } else {
+        key
+    };
+
+    let event_name = to_event_name(base_key);
 
     // Get the handler expression
     let handler = if let Some(JSXAttributeValue::ExpressionContainer(container)) = &attr.value {
@@ -288,8 +333,14 @@ fn transform_event<'a>(
         "undefined".to_string()
     };
 
+    // on: prefix forces non-delegation (direct addEventListener)
+    let force_no_delegate = key.starts_with("on:");
+
+    // Capture events cannot be delegated
     // Check if this event should be delegated
-    let should_delegate = options.delegate_events
+    let should_delegate = !force_no_delegate
+        && !is_capture
+        && options.delegate_events
         && (DELEGATED_EVENTS.contains(event_name.as_str())
             || options.delegated_events.contains(&event_name.as_str()));
 
@@ -302,8 +353,8 @@ fn transform_event<'a>(
         context.register_helper("addEventListener");
         result.exprs.push(Expr {
             code: format!(
-                "addEventListener({}, \"{}\", {}, false)",
-                elem_id, event_name, handler
+                "addEventListener({}, \"{}\", {}, {})",
+                elem_id, event_name, handler, is_capture
             ),
         });
     }
@@ -334,6 +385,59 @@ fn transform_directive<'a>(
             directive_name, elem_id, value
         ),
     });
+}
+
+/// Transform prop: prefix (direct DOM property assignment)
+fn transform_prop<'a>(
+    attr: &JSXAttribute<'a>,
+    key: &str,
+    elem_id: &str,
+    result: &mut TransformResult,
+    context: &BlockContext,
+) {
+    let prop_name = &key[5..]; // Strip "prop:"
+
+    if let Some(JSXAttributeValue::ExpressionContainer(container)) = &attr.value {
+        if let Some(expr) = container.expression.as_expression() {
+            let expr_str = expr_to_string(expr);
+            if is_dynamic(expr) {
+                context.register_helper("effect");
+                result.exprs.push(Expr {
+                    code: format!("effect(() => {}.{} = {})", elem_id, prop_name, expr_str),
+                });
+            } else {
+                result.exprs.push(Expr {
+                    code: format!("{}.{} = {}", elem_id, prop_name, expr_str),
+                });
+            }
+        }
+    }
+}
+
+/// Transform attr: prefix (force attribute mode via setAttribute)
+fn transform_attr<'a>(
+    attr: &JSXAttribute<'a>,
+    key: &str,
+    elem_id: &str,
+    result: &mut TransformResult,
+    context: &BlockContext,
+) {
+    let attr_name = &key[5..]; // Strip "attr:"
+
+    if let Some(JSXAttributeValue::ExpressionContainer(container)) = &attr.value {
+        if let Some(expr) = container.expression.as_expression() {
+            let expr_str = expr_to_string(expr);
+            context.register_helper("effect");
+            context.register_helper("setAttribute");
+            result.exprs.push(Expr {
+                code: format!("effect(() => {}.setAttribute(\"{}\", {}))", elem_id, attr_name, expr_str),
+            });
+        }
+    } else if let Some(JSXAttributeValue::StringLiteral(lit)) = &attr.value {
+        // Static value - inline in template
+        let escaped = escape_html(&lit.value, true);
+        result.template.push_str(&format!(" {}=\"{}\"", attr_name, escaped));
+    }
 }
 
 /// Transform style attribute
@@ -491,14 +595,19 @@ fn transform_inner_content<'a>(
 }
 
 /// Transform element children
-fn transform_children<'a>(
+fn transform_children<'a, 'b>(
     element: &JSXElement<'a>,
     result: &mut TransformResult,
     info: &TransformInfo,
     context: &BlockContext,
     options: &TransformOptions<'a>,
+    transform_child: ChildTransformer<'a, 'b>,
 ) {
     let mut is_first_element = true;
+    let mut has_dynamic_children = false;
+    let mut insert_marker_added = false;
+    // Track the cumulative path for walking siblings
+    let mut current_path = info.path.clone();
 
     for child in &element.children {
         match child {
@@ -510,35 +619,62 @@ fn transform_children<'a>(
                 }
             }
             oxc_ast::ast::JSXChild::Element(child_elem) => {
-                // Build the path for this child element
-                let mut child_path = info.path.clone();
-                if is_first_element {
-                    child_path.push("firstChild".to_string());
-                } else {
-                    child_path.push("nextSibling".to_string());
-                }
-                is_first_element = false;
-
-                let child_info = TransformInfo {
-                    top_level: false,
-                    path: child_path,
-                    root_id: info.root_id.clone(),
-                    ..info.clone()
-                };
-
-                // Recursively transform child elements
                 let child_tag = common::get_tag_name(child_elem);
-                let child_result = transform_element(
-                    child_elem,
-                    &child_tag,
-                    &child_info,
-                    context,
-                    options,
-                );
-                result.template.push_str(&child_result.template);
-                result.declarations.extend(child_result.declarations);
-                result.exprs.extend(child_result.exprs);
-                result.dynamics.extend(child_result.dynamics);
+
+                // Check if this child is a component
+                if is_component(&child_tag) {
+                    // Components need insert() with placeholder marker
+                    if !insert_marker_added && !has_dynamic_children {
+                        // Add a comment marker for insert location
+                        result.template.push_str("<!>");
+                        insert_marker_added = true;
+                    }
+                    has_dynamic_children = true;
+
+                    // Use the transform_child callback to transform the component
+                    // `child` is already a &JSXChild from the for loop
+                    if let Some(child_result) = transform_child(child) {
+                        context.register_helper("insert");
+                        if let Some(id) = &result.id {
+                            // Component returns expression(s), insert them
+                            if !child_result.exprs.is_empty() {
+                                result.exprs.push(Expr {
+                                    code: format!("insert({}, {})", id, child_result.exprs[0].code),
+                                });
+                            }
+                        }
+                    }
+                } else {
+                    // Native element - build path and transform recursively
+                    // Accumulate the path for sibling elements
+                    if is_first_element {
+                        current_path.push("firstChild".to_string());
+                    } else {
+                        current_path.push("nextSibling".to_string());
+                    }
+                    is_first_element = false;
+
+                    let child_info = TransformInfo {
+                        top_level: false,
+                        path: current_path.clone(),
+                        root_id: info.root_id.clone(),
+                        ..info.clone()
+                    };
+
+                    // Recursively transform native element
+                    let child_result = transform_element(
+                        child_elem,
+                        &child_tag,
+                        &child_info,
+                        context,
+                        options,
+                        transform_child,
+                    );
+                    result.template.push_str(&child_result.template);
+                    result.declarations.extend(child_result.declarations);
+                    result.exprs.extend(child_result.exprs);
+                    result.dynamics.extend(child_result.dynamics);
+                }
             }
             oxc_ast::ast::JSXChild::ExpressionContainer(container) => {
                 // Dynamic child - needs insert
@@ -555,6 +691,21 @@ fn transform_children<'a>(
                             result.exprs.push(Expr {
                                 code: format!("insert({}, {})", id, child_expr),
                             });
+                        }
+                    }
+                }
+            }
+            oxc_ast::ast::JSXChild::Fragment(fragment) => {
+                // Handle fragment children - transform each child
+                for frag_child in &fragment.children {
+                    if let Some(child_result) = transform_child(frag_child) {
+                        if !child_result.exprs.is_empty() {
+                            context.register_helper("insert");
+                            if let Some(id) = &result.id {
+                                result.exprs.push(Expr {
+                                    code: format!("insert({}, {})", id, child_result.exprs[0].code),
+                                });
+                            }
                         }
                     }
                 }

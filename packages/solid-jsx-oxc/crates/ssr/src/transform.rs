@@ -291,8 +291,8 @@ impl<'a> SSRTransform<'a> {
         skip_escape: bool,
         ctx: &mut TraverseCtx<'a, ()>,
     ) -> Expression<'a> {
-        let ast = ctx.ast;
-        let span = Span::default();
+        let _ast = ctx.ast;
+        let _span = Span::default();
 
         // Try to parse the expression
         let parsed_expr = self.parse_expression(expr_str, ctx);

@@ -37,7 +37,7 @@ pub fn create_template_clone(index: usize) -> String {
 pub fn generate_template_code(
     result: &TransformResult,
     context: &BlockContext,
-    options: &TransformOptions,
+    _options: &TransformOptions,
 ) -> String {
     let mut code = String::new();
 
@@ -99,7 +99,7 @@ pub fn generate_template_code(
 }
 
 /// Generate attribute setter expression
-fn generate_set_attr(binding: &crate::ir::DynamicBinding) -> String {
+pub fn generate_set_attr(binding: &crate::ir::DynamicBinding) -> String {
     let key = &binding.key;
     let elem = &binding.elem;
     let value = &binding.value;
@@ -112,9 +112,9 @@ fn generate_set_attr(binding: &crate::ir::DynamicBinding) -> String {
             format!("{}.className = {}", elem, value)
         }
     } else if key == "style" {
-        format!("_style({}, {})", elem, value)
+        format!("style({}, {})", elem, value)
     } else if key == "classList" {
-        format!("_classList({}, {})", elem, value)
+        format!("classList({}, {})", elem, value)
     } else if key == "textContent" || key == "innerText" {
         format!("{}.data = {}", elem, value)
     } else if common::constants::PROPERTIES.contains(key.as_str()) {

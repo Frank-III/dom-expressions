@@ -91,11 +91,14 @@ pub fn trim_whitespace(text: &str) -> String {
     result.trim().to_string()
 }
 
-/// Convert event name from JSX format (onClick) to DOM format (click)
+/// Convert event name from JSX format (onClick or on:click) to DOM format (click)
 pub fn to_event_name(name: &str) -> String {
-    if name.starts_with("on") {
+    if name.starts_with("on:") {
+        // Handle on:click -> click (namespaced form)
+        name[3..].to_string()
+    } else if name.starts_with("on") {
         let event = &name[2..];
-        // Handle onFoo -> foo (lowercase first char)
+        // Handle onClick -> click (lowercase first char)
         if let Some(first) = event.chars().next() {
             format!("{}{}", first.to_lowercase(), &event[first.len_utf8()..])
         } else {
