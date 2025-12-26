@@ -267,6 +267,8 @@ mod tests {
             (r#"<Button onClick={handler}>Click me</Button>"#, "component"),
             (r#"<Button><span>icon</span> Click</Button>"#, "component with JSX child"),
             (r#"<Show when={visible}><div class="content">shown</div></Show>"#, "Show with JSX child"),
+            (r#"<div><span class={style()}>nested dynamic</span></div>"#, "nested dynamic element"),
+            (r#"<div><span onClick={handler}>nested event</span></div>"#, "nested event handler"),
         ];
 
         for (source, label) in cases {

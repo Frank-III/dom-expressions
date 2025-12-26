@@ -187,6 +187,11 @@ impl<'a> SolidTransform<'a> {
             code.push_str("(() => {\n");
             code.push_str(&format!("  const {} = {}.cloneNode(true);\n", elem_var, tmpl_var));
 
+            // Add declarations (element walking for nested elements)
+            for decl in &result.declarations {
+                code.push_str(&format!("  const {} = {};\n", decl.name, decl.init));
+            }
+
             // Add expressions (effects, inserts, etc.)
             for expr in &result.exprs {
                 code.push_str(&format!("  {};\n", expr.code));
@@ -224,6 +229,10 @@ pub struct TransformInfo {
     pub skip_id: bool,
     pub component_child: bool,
     pub fragment_child: bool,
+    /// Path from root element to this element (e.g., ["firstChild", "nextSibling"])
+    pub path: Vec<String>,
+    /// The root element variable name (e.g., "_el$1")
+    pub root_id: Option<String>,
 }
 
 impl<'a> Traverse<'a, ()> for SolidTransform<'a> {

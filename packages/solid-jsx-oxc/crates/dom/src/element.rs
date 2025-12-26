@@ -35,9 +35,25 @@ pub fn transform_element<'a>(
         ..Default::default()
     };
 
+    // Check if this element needs runtime access (dynamic attributes, refs, events)
+    let needs_runtime_access = element_needs_runtime_access(element);
+
     // Generate element ID if needed
-    if !info.skip_id {
-        result.id = Some(context.generate_uid("el$"));
+    if !info.skip_id && (info.top_level || needs_runtime_access) {
+        let elem_id = context.generate_uid("el$");
+        result.id = Some(elem_id.clone());
+
+        // If we have a path, we need to walk to this element
+        if !info.path.is_empty() {
+            if let Some(root_id) = &info.root_id {
+                let walk_expr = info.path.iter()
+                    .fold(root_id.clone(), |acc, step| format!("{}.{}", acc, step));
+                result.declarations.push(Declaration {
+                    name: elem_id.clone(),
+                    init: walk_expr,
+                });
+            }
+        }
     }
 
     // Start building template
@@ -53,7 +69,16 @@ pub fn transform_element<'a>(
 
     // Transform children (if not void element)
     if !is_void {
-        transform_children(element, &mut result, context, options);
+        // Pass down the root ID and path for children
+        let child_info = TransformInfo {
+            root_id: if info.top_level {
+                result.id.clone()
+            } else {
+                info.root_id.clone()
+            },
+            ..info.clone()
+        };
+        transform_children(element, &mut result, &child_info, context, options);
 
         // Close tag
         result.template.push_str(&format!("</{}>", tag_name));
@@ -61,6 +86,47 @@ pub fn transform_element<'a>(
     }
 
     result
+}
+
+/// Check if an element needs runtime access
+fn element_needs_runtime_access(element: &JSXElement) -> bool {
+    for attr in &element.opening_element.attributes {
+        match attr {
+            JSXAttributeItem::Attribute(attr) => {
+                let key = match &attr.name {
+                    JSXAttributeName::Identifier(id) => id.name.as_str(),
+                    JSXAttributeName::NamespacedName(ns) => {
+                        // Namespaced attributes like on:click or use:directive always need access
+                        return true;
+                    }
+                };
+
+                // ref needs access
+                if key == "ref" {
+                    return true;
+                }
+
+                // Event handlers need access
+                if key.starts_with("on") && key.len() > 2 {
+                    return true;
+                }
+
+                // Check if attribute value is dynamic
+                if let Some(JSXAttributeValue::ExpressionContainer(container)) = &attr.value {
+                    if let Some(expr) = container.expression.as_expression() {
+                        if is_dynamic(expr) {
+                            return true;
+                        }
+                    }
+                }
+            }
+            JSXAttributeItem::SpreadAttribute(_) => {
+                // Spread attributes always need runtime access
+                return true;
+            }
+        }
+    }
+    false
 }
 
 /// Transform element attributes
@@ -269,24 +335,44 @@ fn transform_directive<'a>(
 fn transform_children<'a>(
     element: &JSXElement<'a>,
     result: &mut TransformResult,
+    info: &TransformInfo,
     context: &BlockContext,
     options: &TransformOptions<'a>,
 ) {
+    let mut is_first_element = true;
+
     for child in &element.children {
         match child {
             oxc_ast::ast::JSXChild::Text(text) => {
                 let content = common::expression::trim_whitespace(&text.value);
                 if !content.is_empty() {
                     result.template.push_str(&escape_html(&content, false));
+                    // Text nodes count as firstChild but we track element children separately
                 }
             }
             oxc_ast::ast::JSXChild::Element(child_elem) => {
+                // Build the path for this child element
+                let mut child_path = info.path.clone();
+                if is_first_element {
+                    child_path.push("firstChild".to_string());
+                } else {
+                    child_path.push("nextSibling".to_string());
+                }
+                is_first_element = false;
+
+                let child_info = TransformInfo {
+                    top_level: false,
+                    path: child_path,
+                    root_id: info.root_id.clone(),
+                    ..info.clone()
+                };
+
                 // Recursively transform child elements
                 let child_tag = common::get_tag_name(child_elem);
                 let child_result = transform_element(
                     child_elem,
                     &child_tag,
-                    &TransformInfo::default(),
+                    &child_info,
                     context,
                     options,
                 );
