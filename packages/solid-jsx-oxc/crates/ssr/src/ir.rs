@@ -2,9 +2,9 @@
 //!
 //! SSR uses a simpler IR than DOM since we're just building template strings.
 
-use std::cell::RefCell;
 use indexmap::IndexSet;
 use oxc_ast::ast::JSXChild;
+use std::cell::RefCell;
 
 /// Function type for transforming child JSX elements
 pub type SSRChildTransformer<'a, 'b> = &'b dyn Fn(&JSXChild<'a>) -> Option<SSRResult>;
@@ -68,7 +68,13 @@ impl SSRResult {
     }
 
     /// Append a dynamic value with explicit hydration marker control
-    pub fn push_dynamic_with_marker(&mut self, expr: String, is_attr: bool, skip_escape: bool, needs_marker: bool) {
+    pub fn push_dynamic_with_marker(
+        &mut self,
+        expr: String,
+        is_attr: bool,
+        skip_escape: bool,
+        needs_marker: bool,
+    ) {
         // Ensure we have a template part before this value
         if self.template_parts.len() == self.template_values.len() {
             self.template_parts.push(String::new());

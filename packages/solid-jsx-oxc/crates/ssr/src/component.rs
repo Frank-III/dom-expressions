@@ -3,14 +3,14 @@
 //! Components in SSR are rendered the same way as DOM - using createComponent.
 //! The component itself decides whether to render for server or client.
 
-use oxc_ast::ast::{
-    JSXElement, JSXAttributeItem, JSXAttributeName,
-    JSXAttributeValue, JSXChild,
+use oxc_ast::ast::{JSXAttributeItem, JSXAttributeName, JSXAttributeValue, JSXChild, JSXElement};
+
+use common::{
+    expr_to_string, find_prop_value, get_children_callback, is_built_in, is_dynamic,
+    TransformOptions,
 };
 
-use common::{TransformOptions, is_built_in, is_dynamic, expr_to_string, get_children_callback, find_prop_value};
-
-use crate::ir::{SSRContext, SSRResult, SSRChildTransformer};
+use crate::ir::{SSRChildTransformer, SSRContext, SSRResult};
 
 // find_prop_value and get_children_callback moved to common module
 
@@ -26,7 +26,10 @@ fn get_children_ssr<'a, 'b>(
             JSXChild::Text(text) => {
                 let content = common::expression::trim_whitespace(&text.value);
                 if !content.is_empty() {
-                    children.push(format!("\"{}\"", common::expression::escape_html(&content, false)));
+                    children.push(format!(
+                        "\"{}\"",
+                        common::expression::escape_html(&content, false)
+                    ));
                 }
             }
             JSXChild::ExpressionContainer(container) => {
@@ -107,7 +110,10 @@ fn transform_builtin<'a, 'b>(
             let each = find_prop_value(element, "each").unwrap_or("[]".to_string());
             let children = get_children_callback(element);
             result.push_dynamic(
-                format!("createComponent(For, {{ each: {}, children: {} }})", each, children),
+                format!(
+                    "createComponent(For, {{ each: {}, children: {} }})",
+                    each, children
+                ),
                 false,
                 false,
             );
@@ -118,7 +124,10 @@ fn transform_builtin<'a, 'b>(
             let fallback = find_prop_value(element, "fallback").unwrap_or("undefined".to_string());
             let children = get_children_ssr(element, transform_child);
             result.push_dynamic(
-                format!("createComponent(Show, {{ when: {}, fallback: {}, children: {} }})", when, fallback, children),
+                format!(
+                    "createComponent(Show, {{ when: {}, fallback: {}, children: {} }})",
+                    when, fallback, children
+                ),
                 false,
                 false,
             );
@@ -137,7 +146,10 @@ fn transform_builtin<'a, 'b>(
             let when = find_prop_value(element, "when").unwrap_or("false".to_string());
             let children = get_children_ssr(element, transform_child);
             result.push_dynamic(
-                format!("createComponent(Match, {{ when: {}, children: {} }})", when, children),
+                format!(
+                    "createComponent(Match, {{ when: {}, children: {} }})",
+                    when, children
+                ),
                 false,
                 false,
             );
@@ -147,7 +159,10 @@ fn transform_builtin<'a, 'b>(
             let each = find_prop_value(element, "each").unwrap_or("[]".to_string());
             let children = get_children_callback(element);
             result.push_dynamic(
-                format!("createComponent(Index, {{ each: {}, children: {} }})", each, children),
+                format!(
+                    "createComponent(Index, {{ each: {}, children: {} }})",
+                    each, children
+                ),
                 false,
                 false,
             );
@@ -157,7 +172,10 @@ fn transform_builtin<'a, 'b>(
             let fallback = find_prop_value(element, "fallback").unwrap_or("undefined".to_string());
             let children = get_children_ssr(element, transform_child);
             result.push_dynamic(
-                format!("createComponent(Suspense, {{ fallback: {}, children: {} }})", fallback, children),
+                format!(
+                    "createComponent(Suspense, {{ fallback: {}, children: {} }})",
+                    fallback, children
+                ),
                 false,
                 false,
             );
@@ -174,7 +192,8 @@ fn transform_builtin<'a, 'b>(
         }
 
         "Dynamic" => {
-            let component = find_prop_value(element, "component").unwrap_or("undefined".to_string());
+            let component =
+                find_prop_value(element, "component").unwrap_or("undefined".to_string());
             result.push_dynamic(
                 format!("createComponent(Dynamic, {{ component: {} }})", component),
                 false,
@@ -186,7 +205,10 @@ fn transform_builtin<'a, 'b>(
             let fallback = find_prop_value(element, "fallback").unwrap_or("undefined".to_string());
             let children = get_children_ssr(element, transform_child);
             result.push_dynamic(
-                format!("createComponent(ErrorBoundary, {{ fallback: {}, children: {} }})", fallback, children),
+                format!(
+                    "createComponent(ErrorBoundary, {{ fallback: {}, children: {} }})",
+                    fallback, children
+                ),
                 false,
                 false,
             );
@@ -205,11 +227,7 @@ fn transform_builtin<'a, 'b>(
 
         _ => {
             // Unknown built-in, treat as regular component
-            result.push_dynamic(
-                format!("createComponent({}, {{}})", tag_name),
-                false,
-                false,
-            );
+            result.push_dynamic(format!("createComponent({}, {{}})", tag_name), false, false);
         }
     }
 
@@ -250,10 +268,8 @@ fn build_props<'a, 'b>(
                         if let Some(expr) = container.expression.as_expression() {
                             let expr_str = expr_to_string(expr);
                             if is_dynamic(expr) {
-                                dynamic_props.push(format!(
-                                    "get {}() {{ return {}; }}",
-                                    key, expr_str
-                                ));
+                                dynamic_props
+                                    .push(format!("get {}() {{ return {}; }}", key, expr_str));
                             } else {
                                 static_props.push(format!("{}: {}", key, expr_str));
                             }
@@ -278,7 +294,8 @@ fn build_props<'a, 'b>(
     }
 
     // Combine all props
-    let all_props = static_props.into_iter()
+    let all_props = static_props
+        .into_iter()
         .chain(dynamic_props)
         .collect::<Vec<_>>()
         .join(", ");

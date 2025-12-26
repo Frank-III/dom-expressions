@@ -3,20 +3,19 @@
 
 use oxc_allocator::{Allocator, CloneIn};
 use oxc_ast::ast::{
-    Expression, JSXElement, JSXFragment, JSXChild, JSXExpressionContainer,
-    JSXText, Program, Statement, ImportOrExportKind, ModuleExportName,
-    ImportDeclarationSpecifier,
+    Expression, ImportDeclarationSpecifier, ImportOrExportKind, JSXChild, JSXElement,
+    JSXExpressionContainer, JSXFragment, JSXText, ModuleExportName, Program, Statement,
 };
-use oxc_span::{Span, SourceType};
-use oxc_traverse::{Traverse, TraverseCtx, traverse_mut};
-use oxc_semantic::SemanticBuilder;
 use oxc_parser::Parser;
+use oxc_semantic::SemanticBuilder;
+use oxc_span::{SourceType, Span};
+use oxc_traverse::{traverse_mut, Traverse, TraverseCtx};
 
-use common::{TransformOptions, is_component, get_tag_name, expr_to_string};
+use common::{expr_to_string, get_tag_name, is_component, TransformOptions};
 
-use crate::ir::{BlockContext, TransformResult};
-use crate::element::transform_element;
 use crate::component::transform_component;
+use crate::element::transform_element;
+use crate::ir::{BlockContext, TransformResult};
 
 /// The main Solid JSX transformer
 pub struct SolidTransform<'a> {
@@ -57,21 +56,11 @@ impl<'a> SolidTransform<'a> {
     }
 
     /// Transform a JSX node and return the result
-    fn transform_node(
-        &self,
-        node: &JSXChild<'a>,
-        info: &TransformInfo,
-    ) -> Option<TransformResult> {
+    fn transform_node(&self, node: &JSXChild<'a>, info: &TransformInfo) -> Option<TransformResult> {
         match node {
-            JSXChild::Element(element) => {
-                Some(self.transform_jsx_element(element, info))
-            }
-            JSXChild::Fragment(fragment) => {
-                Some(self.transform_fragment(fragment, info))
-            }
-            JSXChild::Text(text) => {
-                self.transform_text(text)
-            }
+            JSXChild::Element(element) => Some(self.transform_jsx_element(element, info)),
+            JSXChild::Fragment(fragment) => Some(self.transform_fragment(fragment, info)),
+            JSXChild::Text(text) => self.transform_text(text),
             JSXChild::ExpressionContainer(container) => {
                 self.transform_expression_container(container, info)
             }
@@ -96,14 +85,26 @@ impl<'a> SolidTransform<'a> {
         let tag_name = get_tag_name(element);
 
         // Create child transformer closure that can recursively transform children
-        let child_transformer = |child: &JSXChild<'a>| -> Option<TransformResult> {
-            self.transform_node(child, info)
-        };
+        let child_transformer =
+            |child: &JSXChild<'a>| -> Option<TransformResult> { self.transform_node(child, info) };
 
         if is_component(&tag_name) {
-            transform_component(element, &tag_name, &self.context, self.options, &child_transformer)
+            transform_component(
+                element,
+                &tag_name,
+                &self.context,
+                self.options,
+                &child_transformer,
+            )
         } else {
-            transform_element(element, &tag_name, info, &self.context, self.options, &child_transformer)
+            transform_element(
+                element,
+                &tag_name,
+                info,
+                &self.context,
+                self.options,
+                &child_transformer,
+            )
         }
     }
 
@@ -162,9 +163,7 @@ impl<'a> SolidTransform<'a> {
             } else {
                 // Static expression
                 Some(TransformResult {
-                    exprs: vec![crate::ir::Expr {
-                        code: expr_str,
-                    }],
+                    exprs: vec![crate::ir::Expr { code: expr_str }],
                     ..Default::default()
                 })
             }
@@ -184,7 +183,9 @@ impl<'a> SolidTransform<'a> {
             self.context.register_helper("template");
 
             // Push template and get variable name
-            let tmpl_idx = self.context.push_template(result.template.clone(), result.is_svg);
+            let tmpl_idx = self
+                .context
+                .push_template(result.template.clone(), result.is_svg);
             let tmpl_var = format!("_tmpl${}", tmpl_idx + 1);
 
             // Generate element variable
@@ -192,7 +193,10 @@ impl<'a> SolidTransform<'a> {
 
             // Build IIFE
             code.push_str("(() => {\n");
-            code.push_str(&format!("  const {} = {}.cloneNode(true);\n", elem_var, tmpl_var));
+            code.push_str(&format!(
+                "  const {} = {}.cloneNode(true);\n",
+                elem_var, tmpl_var
+            ));
 
             // Add declarations (element walking for nested elements)
             for decl in &result.declarations {
@@ -223,7 +227,9 @@ impl<'a> SolidTransform<'a> {
             code.push_str("})()");
         } else if !result.exprs.is_empty() {
             // Just expressions (like a component call)
-            code = result.exprs.iter()
+            code = result
+                .exprs
+                .iter()
                 .map(|e| e.code.clone())
                 .collect::<Vec<_>>()
                 .join(", ");
@@ -250,25 +256,27 @@ pub struct TransformInfo {
 impl<'a> Traverse<'a, ()> for SolidTransform<'a> {
     // Use exit_expression instead of enter_expression to avoid
     // oxc_traverse walking into our newly created nodes (which lack scope info)
-    fn exit_expression(
-        &mut self,
-        node: &mut Expression<'a>,
-        ctx: &mut TraverseCtx<'a, ()>,
-    ) {
+    fn exit_expression(&mut self, node: &mut Expression<'a>, ctx: &mut TraverseCtx<'a, ()>) {
         let new_expr = match node {
             Expression::JSXElement(element) => {
-                let result = self.transform_jsx_element(element, &TransformInfo {
-                    top_level: true,
-                    last_element: true,
-                    ..Default::default()
-                });
+                let result = self.transform_jsx_element(
+                    element,
+                    &TransformInfo {
+                        top_level: true,
+                        last_element: true,
+                        ..Default::default()
+                    },
+                );
                 Some(self.build_dom_expression(&result, ctx))
             }
             Expression::JSXFragment(fragment) => {
-                let result = self.transform_fragment(fragment, &TransformInfo {
-                    top_level: true,
-                    ..Default::default()
-                });
+                let result = self.transform_fragment(
+                    fragment,
+                    &TransformInfo {
+                        top_level: true,
+                        ..Default::default()
+                    },
+                );
                 Some(self.build_dom_expression(&result, ctx))
             }
             _ => None,
@@ -333,18 +341,13 @@ impl<'a> Traverse<'a, ()> for SolidTransform<'a> {
             let mut specifiers = ast.vec();
             for helper in helpers.iter() {
                 let helper_str = ast.allocator.alloc_str(helper);
-                let imported = ModuleExportName::IdentifierName(
-                    ast.identifier_name(span, helper_str)
-                );
+                let imported =
+                    ModuleExportName::IdentifierName(ast.identifier_name(span, helper_str));
                 let local = ast.binding_identifier(span, helper_str);
-                let specifier = ast.import_specifier(
-                    span,
-                    imported,
-                    local,
-                    ImportOrExportKind::Value,
-                );
+                let specifier =
+                    ast.import_specifier(span, imported, local, ImportOrExportKind::Value);
                 specifiers.push(ImportDeclarationSpecifier::ImportSpecifier(
-                    ast.alloc(specifier)
+                    ast.alloc(specifier),
                 ));
             }
 
@@ -356,7 +359,7 @@ impl<'a> Traverse<'a, ()> for SolidTransform<'a> {
                 span,
                 Some(specifiers),
                 source,
-                None, // phase
+                None,                                 // phase
                 None::<oxc_ast::ast::WithClause<'a>>, // with_clause
                 ImportOrExportKind::Value,
             );
@@ -401,17 +404,16 @@ impl<'a> SolidTransform<'a> {
     }
 
     /// Parse a statement string into a Statement
-    fn parse_statement(
-        &self,
-        code: &str,
-        ctx: &mut TraverseCtx<'a, ()>,
-    ) -> Option<Statement<'a>> {
+    fn parse_statement(&self, code: &str, ctx: &mut TraverseCtx<'a, ()>) -> Option<Statement<'a>> {
         let ast = ctx.ast;
         let allocator = ast.allocator;
         let source_type = SourceType::tsx();
         let parse_result = Parser::new(allocator, code, source_type).parse();
 
-        parse_result.program.body.first()
+        parse_result
+            .program
+            .body
+            .first()
             .map(|stmt| stmt.clone_in(allocator))
     }
 }

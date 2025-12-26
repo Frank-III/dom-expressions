@@ -2,8 +2,8 @@
 //!
 //! These tests verify the OXC compiler output matches expected SolidJS patterns.
 
-use solid_jsx_oxc::{transform, TransformOptions};
 use common::GenerateMode;
+use solid_jsx_oxc::{transform, TransformOptions};
 
 /// Helper to normalize whitespace for comparison
 fn normalize(s: &str) -> String {
@@ -146,6 +146,27 @@ fn test_dom_mixed_children() {
     assert!(code.contains("name()"));
 }
 
+#[test]
+fn test_dom_mixed_text_inserts_before_marker() {
+    let code = transform_dom(r#"<div>Hello {name()}!</div>"#);
+    assert!(code.contains("<div>Hello<!>!</div>"));
+    assert!(code.contains("insert(_el$1, () => name(), _el$2)"));
+}
+
+#[test]
+fn test_dom_nested_element_after_text_walks_next_sibling() {
+    let code = transform_dom(r#"<div>Hello <span class={style()}>world</span></div>"#);
+    assert!(code.contains("firstChild.nextSibling"));
+    assert!(code.contains("style()"));
+}
+
+#[test]
+fn test_dom_component_between_elements_inserts_before_marker() {
+    let code = transform_dom(r#"<div><span>text</span><Counter /><p>more</p></div>"#);
+    assert!(code.contains("<span>text</span><!><p>more</p>"));
+    assert!(code.contains("insert(_el$1, createComponent(Counter, {}), _el$2)"));
+}
+
 // ============================================================================
 // DOM: Refs
 // ============================================================================
@@ -279,18 +300,36 @@ fn test_dom_component_nested_in_element() {
     let code = transform_dom(r#"<main><Counter /></main>"#);
 
     // Should have a template for the parent element with a placeholder marker
-    assert!(code.contains("template"), "Should create template for parent element");
-    assert!(code.contains("<main>"), "Template should contain main element");
+    assert!(
+        code.contains("template"),
+        "Should create template for parent element"
+    );
+    assert!(
+        code.contains("<main>"),
+        "Template should contain main element"
+    );
 
     // The component should be transformed with createComponent
-    assert!(code.contains("createComponent"), "Should use createComponent for Counter");
-    assert!(code.contains("Counter"), "Should reference Counter component");
+    assert!(
+        code.contains("createComponent"),
+        "Should use createComponent for Counter"
+    );
+    assert!(
+        code.contains("Counter"),
+        "Should reference Counter component"
+    );
 
     // Should use insert() to place the component in the DOM
-    assert!(code.contains("insert("), "Should use insert() for dynamic component child");
+    assert!(
+        code.contains("insert("),
+        "Should use insert() for dynamic component child"
+    );
 
     // Should NOT have <Counter> as literal HTML in the template
-    assert!(!code.contains("<Counter>"), "Counter should NOT be literal HTML in template");
+    assert!(
+        !code.contains("<Counter>"),
+        "Counter should NOT be literal HTML in template"
+    );
 }
 
 #[test]
@@ -306,7 +345,11 @@ fn test_dom_multiple_components_nested_in_element() {
 
     // Should have multiple insert calls
     let insert_count = code.matches("insert(").count();
-    assert!(insert_count >= 3, "Should have insert() for each component, found {}", insert_count);
+    assert!(
+        insert_count >= 3,
+        "Should have insert() for each component, found {}",
+        insert_count
+    );
 
     // Components should NOT be literal HTML
     assert!(!code.contains("<Header>"));
@@ -340,7 +383,10 @@ fn test_dom_deeply_nested_component() {
     assert!(code.contains("<div><main><!></main></div>"));
 
     // Should walk to the parent element (main)
-    assert!(code.contains("firstChild"), "Should walk to nested parent element");
+    assert!(
+        code.contains("firstChild"),
+        "Should walk to nested parent element"
+    );
 
     // Should insert the component
     assert!(code.contains("createComponent"));
@@ -359,7 +405,10 @@ fn test_dom_very_deeply_nested_component() {
     assert!(code.contains("<div><section><article><!></article></section></div>"));
 
     // Should walk through nested elements
-    assert!(code.contains("firstChild.firstChild"), "Should walk through multiple levels");
+    assert!(
+        code.contains("firstChild.firstChild"),
+        "Should walk through multiple levels"
+    );
 
     // Should use createComponent + insert
     assert!(code.contains("createComponent"));
@@ -394,14 +443,17 @@ fn test_dom_show() {
 
 #[test]
 fn test_dom_show_with_fallback() {
-    let code = transform_dom(r#"<Show when={visible} fallback={<div>hidden</div>}><div>shown</div></Show>"#);
+    let code = transform_dom(
+        r#"<Show when={visible} fallback={<div>hidden</div>}><div>shown</div></Show>"#,
+    );
     assert!(code.contains("Show"));
     assert!(code.contains("fallback:"));
 }
 
 #[test]
 fn test_dom_switch_match() {
-    let code = transform_dom(r#"<Switch><Match when={a}>A</Match><Match when={b}>B</Match></Switch>"#);
+    let code =
+        transform_dom(r#"<Switch><Match when={a}>A</Match><Match when={b}>B</Match></Switch>"#);
     assert!(code.contains("Switch"));
     assert!(code.contains("Match"));
 }
@@ -415,14 +467,17 @@ fn test_dom_index() {
 
 #[test]
 fn test_dom_suspense() {
-    let code = transform_dom(r#"<Suspense fallback={<div>Loading...</div>}><Content /></Suspense>"#);
+    let code =
+        transform_dom(r#"<Suspense fallback={<div>Loading...</div>}><Content /></Suspense>"#);
     assert!(code.contains("Suspense"));
     assert!(code.contains("fallback:"));
 }
 
 #[test]
 fn test_dom_error_boundary() {
-    let code = transform_dom(r#"<ErrorBoundary fallback={err => <div>{err}</div>}><Content /></ErrorBoundary>"#);
+    let code = transform_dom(
+        r#"<ErrorBoundary fallback={err => <div>{err}</div>}><Content /></ErrorBoundary>"#,
+    );
     assert!(code.contains("ErrorBoundary"));
 }
 
@@ -499,16 +554,20 @@ fn test_custom_element() {
 
 #[test]
 fn test_namespaced_attribute() {
-    let code = transform_dom(r##"<svg xmlns:xlink="http://www.w3.org/1999/xlink"><use xlink:href="#id" /></svg>"##);
+    let code = transform_dom(
+        r##"<svg xmlns:xlink="http://www.w3.org/1999/xlink"><use xlink:href="#id" /></svg>"##,
+    );
     assert!(code.contains("xlink:href"));
 }
 
 #[test]
 fn test_whitespace_handling() {
-    let code = transform_dom(r#"<div>
+    let code = transform_dom(
+        r#"<div>
         hello
         world
-    </div>"#);
+    </div>"#,
+    );
     // Should handle whitespace appropriately
     assert!(code.contains("hello"));
 }

@@ -4,20 +4,20 @@
 
 use oxc_allocator::{Allocator, CloneIn};
 use oxc_ast::ast::{
-    Expression, JSXElement, JSXFragment, JSXChild, JSXExpressionContainer,
-    JSXText, Program, Statement, ImportOrExportKind, ModuleExportName,
-    ImportDeclarationSpecifier, TemplateElementValue,
+    Expression, ImportDeclarationSpecifier, ImportOrExportKind, JSXChild, JSXElement,
+    JSXExpressionContainer, JSXFragment, JSXText, ModuleExportName, Program, Statement,
+    TemplateElementValue,
 };
-use oxc_span::{Span, SourceType};
-use oxc_traverse::{Traverse, TraverseCtx, traverse_mut};
-use oxc_semantic::SemanticBuilder;
 use oxc_parser::Parser;
+use oxc_semantic::SemanticBuilder;
+use oxc_span::{SourceType, Span};
+use oxc_traverse::{traverse_mut, Traverse, TraverseCtx};
 
-use common::{TransformOptions, is_component, get_tag_name};
+use common::{get_tag_name, is_component, TransformOptions};
 
-use crate::ir::{SSRContext, SSRResult};
-use crate::element::transform_element;
 use crate::component::transform_component;
+use crate::element::transform_element;
+use crate::ir::{SSRContext, SSRResult};
 
 /// The main SSR JSX transformer
 pub struct SSRTransform<'a> {
@@ -58,20 +58,11 @@ impl<'a> SSRTransform<'a> {
     }
 
     /// Transform a JSX node and return the SSR result
-    fn transform_node(
-        &self,
-        node: &JSXChild<'a>,
-    ) -> Option<SSRResult> {
+    fn transform_node(&self, node: &JSXChild<'a>) -> Option<SSRResult> {
         match node {
-            JSXChild::Element(element) => {
-                Some(self.transform_jsx_element(element))
-            }
-            JSXChild::Fragment(fragment) => {
-                Some(self.transform_fragment(fragment))
-            }
-            JSXChild::Text(text) => {
-                self.transform_text(text)
-            }
+            JSXChild::Element(element) => Some(self.transform_jsx_element(element)),
+            JSXChild::Fragment(fragment) => Some(self.transform_fragment(fragment)),
+            JSXChild::Text(text) => self.transform_text(text),
             JSXChild::ExpressionContainer(container) => {
                 self.transform_expression_container(container)
             }
@@ -86,28 +77,27 @@ impl<'a> SSRTransform<'a> {
     }
 
     /// Transform a JSX element
-    fn transform_jsx_element(
-        &self,
-        element: &JSXElement<'a>,
-    ) -> SSRResult {
+    fn transform_jsx_element(&self, element: &JSXElement<'a>) -> SSRResult {
         let tag_name = get_tag_name(element);
 
         if is_component(&tag_name) {
             // Create child transformer closure that can recursively transform children
-            let child_transformer = |child: &JSXChild<'a>| -> Option<SSRResult> {
-                self.transform_node(child)
-            };
-            transform_component(element, &tag_name, &self.context, self.options, &child_transformer)
+            let child_transformer =
+                |child: &JSXChild<'a>| -> Option<SSRResult> { self.transform_node(child) };
+            transform_component(
+                element,
+                &tag_name,
+                &self.context,
+                self.options,
+                &child_transformer,
+            )
         } else {
             transform_element(element, &tag_name, &self.context, self.options)
         }
     }
 
     /// Transform a JSX fragment
-    fn transform_fragment(
-        &self,
-        fragment: &JSXFragment<'a>,
-    ) -> SSRResult {
+    fn transform_fragment(&self, fragment: &JSXFragment<'a>) -> SSRResult {
         let mut result = SSRResult::new();
 
         for child in &fragment.children {
@@ -150,11 +140,7 @@ impl<'a> SSRTransform<'a> {
 impl<'a> Traverse<'a, ()> for SSRTransform<'a> {
     // Use exit_expression instead of enter_expression to avoid
     // oxc_traverse walking into our newly created nodes (which lack scope info)
-    fn exit_expression(
-        &mut self,
-        node: &mut Expression<'a>,
-        ctx: &mut TraverseCtx<'a, ()>,
-    ) {
+    fn exit_expression(&mut self, node: &mut Expression<'a>, ctx: &mut TraverseCtx<'a, ()>) {
         let new_expr = match node {
             Expression::JSXElement(element) => {
                 let result = self.transform_jsx_element(element);
@@ -191,18 +177,11 @@ impl<'a> Traverse<'a, ()> for SSRTransform<'a> {
         let mut specifiers = ast.vec();
         for helper in helpers.iter() {
             let helper_str = ast.allocator.alloc_str(helper);
-            let imported = ModuleExportName::IdentifierName(
-                ast.identifier_name(span, helper_str)
-            );
+            let imported = ModuleExportName::IdentifierName(ast.identifier_name(span, helper_str));
             let local = ast.binding_identifier(span, helper_str);
-            let specifier = ast.import_specifier(
-                span,
-                imported,
-                local,
-                ImportOrExportKind::Value,
-            );
+            let specifier = ast.import_specifier(span, imported, local, ImportOrExportKind::Value);
             specifiers.push(ImportDeclarationSpecifier::ImportSpecifier(
-                ast.alloc(specifier)
+                ast.alloc(specifier),
             ));
         }
 
@@ -214,7 +193,7 @@ impl<'a> Traverse<'a, ()> for SSRTransform<'a> {
             span,
             Some(specifiers),
             source,
-            None, // phase
+            None,                                 // phase
             None::<oxc_ast::ast::WithClause<'a>>, // with_clause
             ImportOrExportKind::Value,
         );
@@ -310,11 +289,7 @@ impl<'a> SSRTransform<'a> {
     }
 
     /// Parse an expression string into an AST Expression
-    fn parse_expression(
-        &self,
-        expr_str: &str,
-        ctx: &mut TraverseCtx<'a, ()>,
-    ) -> Expression<'a> {
+    fn parse_expression(&self, expr_str: &str, ctx: &mut TraverseCtx<'a, ()>) -> Expression<'a> {
         let ast = ctx.ast;
         let span = Span::default();
 

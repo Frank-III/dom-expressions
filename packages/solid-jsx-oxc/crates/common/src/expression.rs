@@ -1,6 +1,6 @@
 //! Expression utilities for working with OXC AST
 
-use oxc_ast::ast::{Expression, Statement, JSXElement, JSXChild};
+use oxc_ast::ast::{Expression, JSXChild, JSXElement, Statement};
 use oxc_codegen::{Codegen, CodegenOptions};
 use oxc_span::Span;
 
@@ -16,9 +16,7 @@ pub fn stmt_to_string(stmt: &Statement<'_>) -> String {
     // For statements, we need to wrap in a minimal program context
     // But for most cases we just need expression statements
     match stmt {
-        Statement::ExpressionStatement(expr_stmt) => {
-            expr_to_string(&expr_stmt.expression)
-        }
+        Statement::ExpressionStatement(expr_stmt) => expr_to_string(&expr_stmt.expression),
         _ => {
             // Fallback - this is less common
             format!("/* unsupported statement */")

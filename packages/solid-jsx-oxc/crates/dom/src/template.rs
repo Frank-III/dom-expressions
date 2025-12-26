@@ -20,10 +20,7 @@ pub fn create_template_declaration(
             index, content
         )
     } else {
-        format!(
-            "const _tmpl${} = _template(\"{}\");",
-            index, content
-        )
+        format!("const _tmpl${} = _template(\"{}\");", index, content)
     }
 }
 
@@ -43,10 +40,7 @@ pub fn generate_template_code(
 
     // If we have a template, create the declaration
     if !result.template.is_empty() && !result.skip_template {
-        let template_index = context.push_template(
-            result.template.clone(),
-            result.is_svg,
-        );
+        let template_index = context.push_template(result.template.clone(), result.is_svg);
 
         // Generate variable declarations
         if let Some(id) = &result.id {
@@ -59,10 +53,7 @@ pub fn generate_template_code(
 
         // Generate walker declarations for child elements
         for decl in &result.declarations {
-            code.push_str(&format!(
-                "const {} = {};\n",
-                decl.name, decl.init
-            ));
+            code.push_str(&format!("const {} = {};\n", decl.name, decl.init));
         }
     }
 

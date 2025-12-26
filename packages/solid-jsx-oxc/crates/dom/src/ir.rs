@@ -2,9 +2,9 @@
 //! This IR is used to collect information during traversal
 //! and then generate code in a second pass.
 
-use std::cell::RefCell;
 use indexmap::IndexSet;
 use oxc_ast::ast::JSXChild;
+use std::cell::RefCell;
 
 /// Function type for transforming child JSX elements
 pub type ChildTransformer<'a, 'b> = &'b dyn Fn(&JSXChild<'a>) -> Option<TransformResult>;
@@ -118,6 +118,7 @@ impl BlockContext {
 
     /// Push a template and return its index
     pub fn push_template(&self, content: String, is_svg: bool) -> usize {
+        self.register_helper("template");
         let mut templates = self.templates.borrow_mut();
         let index = templates.len();
         templates.push(TemplateInfo { content, is_svg });
