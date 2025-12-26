@@ -8,48 +8,11 @@ use oxc_ast::ast::{
     JSXAttributeValue, JSXChild,
 };
 
-use common::{TransformOptions, is_built_in, is_dynamic, expr_to_string};
+use common::{TransformOptions, is_built_in, is_dynamic, expr_to_string, get_children_callback, find_prop_value};
 
 use crate::ir::{SSRContext, SSRResult, SSRChildTransformer};
 
-/// Helper to find a prop value by name
-fn find_prop_expr<'a>(element: &'a JSXElement<'a>, name: &str) -> Option<String> {
-    for attr in &element.opening_element.attributes {
-        if let JSXAttributeItem::Attribute(attr) = attr {
-            let key = match &attr.name {
-                JSXAttributeName::Identifier(id) => id.name.as_str(),
-                _ => continue,
-            };
-
-            if key == name {
-                return match &attr.value {
-                    Some(JSXAttributeValue::ExpressionContainer(container)) => {
-                        container.expression.as_expression()
-                            .map(|e| expr_to_string(e))
-                    }
-                    Some(JSXAttributeValue::StringLiteral(lit)) => {
-                        Some(format!("\"{}\"", lit.value))
-                    }
-                    None => Some("true".to_string()),
-                    _ => None,
-                };
-            }
-        }
-    }
-    None
-}
-
-/// Get children callback expression (for For, Index)
-fn get_children_callback<'a>(element: &'a JSXElement<'a>) -> String {
-    for child in &element.children {
-        if let JSXChild::ExpressionContainer(container) = child {
-            if let Some(expr) = container.expression.as_expression() {
-                return expr_to_string(expr);
-            }
-        }
-    }
-    "() => undefined".to_string()
-}
+// find_prop_value and get_children_callback moved to common module
 
 /// Get children as SSR expression with recursive transformation
 fn get_children_ssr<'a, 'b>(
@@ -135,12 +98,10 @@ fn transform_builtin<'a, 'b>(
     context.register_helper("createComponent");
     context.register_helper("escape");
 
-    // Note: Built-in components (For, Show, Switch, Match, Index, Suspense, Portal, Dynamic, ErrorBoundary, NoHydration)
-    // are user-imported from solid-js, not runtime helpers. We don't register them as helpers.
-
     match tag_name {
         "For" => {
-            let each = find_prop_expr(element, "each").unwrap_or("[]".to_string());
+            context.register_helper("For");
+            let each = find_prop_value(element, "each").unwrap_or("[]".to_string());
             let children = get_children_callback(element);
             result.push_dynamic(
                 format!("createComponent(For, {{ each: {}, children: {} }})", each, children),
@@ -150,8 +111,9 @@ fn transform_builtin<'a, 'b>(
         }
 
         "Show" => {
-            let when = find_prop_expr(element, "when").unwrap_or("false".to_string());
-            let fallback = find_prop_expr(element, "fallback").unwrap_or("undefined".to_string());
+            context.register_helper("Show");
+            let when = find_prop_value(element, "when").unwrap_or("false".to_string());
+            let fallback = find_prop_value(element, "fallback").unwrap_or("undefined".to_string());
             let children = get_children_ssr(element, transform_child);
             result.push_dynamic(
                 format!("createComponent(Show, {{ when: {}, fallback: {}, children: {} }})", when, fallback, children),
@@ -161,6 +123,7 @@ fn transform_builtin<'a, 'b>(
         }
 
         "Switch" => {
+            context.register_helper("Switch");
             let children = get_children_ssr(element, transform_child);
             result.push_dynamic(
                 format!("createComponent(Switch, {{ children: {} }})", children),
@@ -170,7 +133,8 @@ fn transform_builtin<'a, 'b>(
         }
 
         "Match" => {
-            let when = find_prop_expr(element, "when").unwrap_or("false".to_string());
+            context.register_helper("Match");
+            let when = find_prop_value(element, "when").unwrap_or("false".to_string());
             let children = get_children_ssr(element, transform_child);
             result.push_dynamic(
                 format!("createComponent(Match, {{ when: {}, children: {} }})", when, children),
@@ -180,7 +144,8 @@ fn transform_builtin<'a, 'b>(
         }
 
         "Index" => {
-            let each = find_prop_expr(element, "each").unwrap_or("[]".to_string());
+            context.register_helper("Index");
+            let each = find_prop_value(element, "each").unwrap_or("[]".to_string());
             let children = get_children_callback(element);
             result.push_dynamic(
                 format!("createComponent(Index, {{ each: {}, children: {} }})", each, children),
@@ -190,7 +155,8 @@ fn transform_builtin<'a, 'b>(
         }
 
         "Suspense" => {
-            let fallback = find_prop_expr(element, "fallback").unwrap_or("undefined".to_string());
+            context.register_helper("Suspense");
+            let fallback = find_prop_value(element, "fallback").unwrap_or("undefined".to_string());
             let children = get_children_ssr(element, transform_child);
             result.push_dynamic(
                 format!("createComponent(Suspense, {{ fallback: {}, children: {} }})", fallback, children),
@@ -201,6 +167,7 @@ fn transform_builtin<'a, 'b>(
 
         "Portal" => {
             // Portal in SSR just renders children (no mount target on server)
+            context.register_helper("Portal");
             let children = get_children_ssr(element, transform_child);
             result.push_dynamic(
                 format!("createComponent(Portal, {{ children: {} }})", children),
@@ -210,7 +177,8 @@ fn transform_builtin<'a, 'b>(
         }
 
         "Dynamic" => {
-            let component = find_prop_expr(element, "component").unwrap_or("undefined".to_string());
+            context.register_helper("Dynamic");
+            let component = find_prop_value(element, "component").unwrap_or("undefined".to_string());
             result.push_dynamic(
                 format!("createComponent(Dynamic, {{ component: {} }})", component),
                 false,
@@ -219,7 +187,8 @@ fn transform_builtin<'a, 'b>(
         }
 
         "ErrorBoundary" => {
-            let fallback = find_prop_expr(element, "fallback").unwrap_or("undefined".to_string());
+            context.register_helper("ErrorBoundary");
+            let fallback = find_prop_value(element, "fallback").unwrap_or("undefined".to_string());
             let children = get_children_ssr(element, transform_child);
             result.push_dynamic(
                 format!("createComponent(ErrorBoundary, {{ fallback: {}, children: {} }})", fallback, children),
@@ -230,6 +199,7 @@ fn transform_builtin<'a, 'b>(
 
         "NoHydration" => {
             // Special SSR component - renders children without hydration markers
+            context.register_helper("NoHydration");
             let children = get_children_ssr(element, transform_child);
             result.push_dynamic(
                 format!("createComponent(NoHydration, {{ children: {} }})", children),

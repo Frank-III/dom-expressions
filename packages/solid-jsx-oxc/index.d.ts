@@ -3,69 +3,113 @@
  */
 
 export interface TransformOptions {
-  /** The module to import runtime helpers from (default: 'solid-js/web') */
+  /**
+   * The module to import runtime helpers from
+   * @default "solid-js/web"
+   */
   moduleName?: string;
-  /** Built-in components to pass through */
-  builtIns?: string[];
-  /** Pass context to custom elements (default: true) */
-  contextToCustomElements?: boolean;
-  /** Wrap conditionals in memos (default: true) */
-  wrapConditionals?: boolean;
-  /** Generate mode: 'dom' | 'ssr' | 'universal' (default: 'dom') */
+
+  /**
+   * Generate mode: "dom", "ssr", or "universal"
+   * @default "dom"
+   */
   generate?: 'dom' | 'ssr' | 'universal';
-  /** Enable hydration support (default: false) */
+
+  /**
+   * Whether to enable hydration support
+   * @default false
+   */
   hydratable?: boolean;
-  /** Delegate events for better performance (default: true) */
+
+  /**
+   * Whether to delegate events
+   * @default true
+   */
   delegateEvents?: boolean;
-  /** Generate source maps (default: false) */
-  sourceMap?: boolean;
-  /** Filename for source maps */
+
+  /**
+   * Whether to wrap conditionals
+   * @default true
+   */
+  wrapConditionals?: boolean;
+
+  /**
+   * Whether to pass context to custom elements
+   * @default true
+   */
+  contextToCustomElements?: boolean;
+
+  /**
+   * Source filename
+   * @default "input.jsx"
+   */
   filename?: string;
+
+  /**
+   * Whether to generate source maps
+   * @default false
+   */
+  sourceMap?: boolean;
+
+  /**
+   * Built-in components that receive special handling
+   */
+  builtIns?: string[];
 }
 
 export interface TransformResult {
   /** The transformed code */
   code: string;
-  /** Source map (if sourceMap option is true) */
+  /** Source map (if enabled) */
   map?: string;
 }
-
-/**
- * Default transform options
- */
-export declare const defaultOptions: TransformOptions;
 
 /**
  * Transform JSX source code
  * @param source - The source code to transform
  * @param options - Transform options
- * @returns The transformed result with code and optional source map
+ * @returns The transformed code and optional source map
  */
-export declare function transform(source: string, options?: TransformOptions): TransformResult;
+export function transform(source: string, options?: TransformOptions): TransformResult;
 
 /**
- * Direct transform function (used by vite plugin)
- * @param source - The source code to transform
- * @param options - Transform options
- * @returns The transformed result with code and optional source map
+ * Low-level transform function from the native binding.
+ * Prefers snake_case option names.
  */
-export declare function transformJsx(source: string, options?: TransformOptions): TransformResult;
+export function transformJsx(source: string, options?: {
+  module_name?: string;
+  generate?: string;
+  hydratable?: boolean;
+  delegate_events?: boolean;
+  wrap_conditionals?: boolean;
+  context_to_custom_elements?: boolean;
+  filename?: string;
+  source_map?: boolean;
+} | null): TransformResult;
 
-/**
- * Create a preset configuration (for babel-preset-solid compatibility)
- * @param context - Context (ignored, for compatibility)
- * @param options - User options
- */
-export declare function preset(context: unknown, options?: TransformOptions): {
+export interface PresetResult {
   options: TransformOptions;
   transform: (source: string) => TransformResult;
-};
+}
 
-declare const solidJsxOxc: {
+/**
+ * Create a preset configuration (for compatibility with babel-preset-solid interface)
+ * @param context - Babel context (ignored, for compatibility)
+ * @param options - User options
+ * @returns Preset configuration with options and transform function
+ */
+export function preset(context: unknown, options?: TransformOptions): PresetResult;
+
+/**
+ * Default options matching babel-preset-solid
+ */
+export const defaultOptions: Required<Omit<TransformOptions, 'filename'>>;
+
+declare const _default: {
   transform: typeof transform;
-  transformJsx: typeof transformJsx;
   preset: typeof preset;
-  defaultOptions: TransformOptions;
+  defaultOptions: typeof defaultOptions;
+  transformJsx: typeof transformJsx;
 };
 
-export default solidJsxOxc;
+export default _default;

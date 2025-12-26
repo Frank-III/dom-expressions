@@ -13,7 +13,7 @@ use oxc_traverse::{Traverse, TraverseCtx, traverse_mut};
 use oxc_semantic::SemanticBuilder;
 use oxc_parser::Parser;
 
-use common::{TransformOptions, is_component, get_tag_name, expr_to_string};
+use common::{TransformOptions, is_component, get_tag_name};
 
 use crate::ir::{SSRContext, SSRResult};
 use crate::element::transform_element;
@@ -37,6 +37,13 @@ impl<'a> SSRTransform<'a> {
 
     /// Run the transform on a program
     pub fn transform(mut self, program: &mut Program<'a>) {
+        // SAFETY: We convert the allocator reference to a raw pointer and back to a reference
+        // to satisfy oxc_traverse's API which requires `&Allocator` while we hold `&mut self`.
+        // This is safe because:
+        // 1. The allocator lives for 'a which outlives this entire transform operation
+        // 2. oxc_traverse only uses the allocator for read-only arena access
+        // 3. We don't mutate the allocator through any path during traversal
+        // 4. The pointer is never escaped or stored beyond this call
         let allocator = self.allocator as *const Allocator;
         traverse_mut(
             &mut self,
@@ -68,13 +75,11 @@ impl<'a> SSRTransform<'a> {
             JSXChild::ExpressionContainer(container) => {
                 self.transform_expression_container(container)
             }
-            JSXChild::Spread(spread) => {
-                // Spread children - extract and use the spread expression
+            JSXChild::Spread(_) => {
+                // Spread children - treat as dynamic
                 let mut result = SSRResult::new();
                 self.context.register_helper("escape");
-                let expr_str = expr_to_string(&spread.expression);
-                // Spread children are typically arrays that need to be joined
-                result.push_dynamic(format!("[].concat({}).join(\"\")", expr_str), false, true);
+                result.push_dynamic("/* spread */".to_string(), false, false);
                 Some(result)
             }
         }
@@ -131,11 +136,10 @@ impl<'a> SSRTransform<'a> {
         &self,
         container: &JSXExpressionContainer<'a>,
     ) -> Option<SSRResult> {
-        if let Some(expr) = container.expression.as_expression() {
+        if let Some(_expr) = container.expression.as_expression() {
             self.context.register_helper("escape");
             let mut result = SSRResult::new();
-            let expr_str = expr_to_string(expr);
-            result.push_dynamic(expr_str, false, false);
+            result.push_dynamic("/* expr */".to_string(), false, false);
             Some(result)
         } else {
             None
@@ -177,6 +181,8 @@ impl<'a> Traverse<'a, ()> for SSRTransform<'a> {
         }
 
         // Build import statement: import { ssr, escape, ... } from 'solid-js/web';
+        // NOTE: This import building logic is duplicated with DOM transform.
+        // Extraction is non-trivial due to OXC's lifetime requirements.
         let ast = ctx.ast;
         let span = Span::default();
         let module_name = self.options.module_name;

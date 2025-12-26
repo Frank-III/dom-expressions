@@ -62,5 +62,4 @@ napi-build = "2"
 [profile.release]
 lto = true
 codegen-units = 1
-# Note: Don't strip symbols - needed for NAPI module registration
-# strip = "symbols"
+strip = "symbols"

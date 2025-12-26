@@ -6,7 +6,7 @@ use oxc_ast::ast::{
     JSXAttributeValue, JSXChild,
 };
 
-use common::{TransformOptions, is_built_in, is_dynamic, expr_to_string};
+use common::{TransformOptions, is_built_in, is_dynamic, expr_to_string, get_children_callback, find_prop};
 
 use crate::ir::{BlockContext, TransformResult, Expr, ChildTransformer};
 
@@ -90,7 +90,7 @@ fn transform_for<'a, 'b>(
     _transform_child: ChildTransformer<'a, 'b>,
 ) {
     context.register_helper("createComponent");
-    // Note: For is a user-imported component from solid-js, not a runtime helper
+    context.register_helper("For");
 
     let each_expr = get_prop_expr(element, "each");
     let children = get_children_callback(element);
@@ -111,6 +111,7 @@ fn transform_show<'a, 'b>(
     transform_child: ChildTransformer<'a, 'b>,
 ) {
     context.register_helper("createComponent");
+    context.register_helper("Show");
 
     let when_expr = get_prop_expr(element, "when");
     let fallback_expr = get_prop_expr(element, "fallback");
@@ -132,6 +133,7 @@ fn transform_switch<'a, 'b>(
     transform_child: ChildTransformer<'a, 'b>,
 ) {
     context.register_helper("createComponent");
+    context.register_helper("Switch");
 
     let children = get_children_expr_transformed(element, context, transform_child);
 
@@ -151,6 +153,7 @@ fn transform_match<'a, 'b>(
     transform_child: ChildTransformer<'a, 'b>,
 ) {
     context.register_helper("createComponent");
+    context.register_helper("Match");
 
     let when_expr = get_prop_expr(element, "when");
     let children = get_children_expr_transformed(element, context, transform_child);
@@ -171,6 +174,7 @@ fn transform_index<'a, 'b>(
     _transform_child: ChildTransformer<'a, 'b>,
 ) {
     context.register_helper("createComponent");
+    context.register_helper("Index");
 
     let each_expr = get_prop_expr(element, "each");
     let children = get_children_callback(element);
@@ -191,6 +195,7 @@ fn transform_suspense<'a, 'b>(
     transform_child: ChildTransformer<'a, 'b>,
 ) {
     context.register_helper("createComponent");
+    context.register_helper("Suspense");
 
     let fallback_expr = get_prop_expr(element, "fallback");
     let children = get_children_expr_transformed(element, context, transform_child);
@@ -211,6 +216,7 @@ fn transform_portal<'a, 'b>(
     transform_child: ChildTransformer<'a, 'b>,
 ) {
     context.register_helper("createComponent");
+    context.register_helper("Portal");
 
     let mount_expr = get_prop_expr(element, "mount");
     let children = get_children_expr_transformed(element, context, transform_child);
@@ -232,6 +238,7 @@ fn transform_dynamic<'a, 'b>(
     transform_child: ChildTransformer<'a, 'b>,
 ) {
     context.register_helper("createComponent");
+    context.register_helper("Dynamic");
 
     let component_expr = get_prop_expr(element, "component");
     let props = build_props(element, context, options, transform_child);
@@ -252,6 +259,7 @@ fn transform_error_boundary<'a, 'b>(
     transform_child: ChildTransformer<'a, 'b>,
 ) {
     context.register_helper("createComponent");
+    context.register_helper("ErrorBoundary");
 
     let fallback_expr = get_prop_expr(element, "fallback");
     let children = get_children_expr_transformed(element, context, transform_child);
@@ -407,32 +415,4 @@ fn get_children_expr_transformed<'a, 'b>(
     }
 }
 
-/// Find a prop by name
-fn find_prop<'a>(element: &'a JSXElement<'a>, name: &str) -> Option<&'a JSXAttribute<'a>> {
-    for attr in &element.opening_element.attributes {
-        if let JSXAttributeItem::Attribute(attr) = attr {
-            if let JSXAttributeName::Identifier(id) = &attr.name {
-                if id.name == name {
-                    return Some(attr);
-                }
-            }
-        }
-    }
-    None
-}
-
-/// Get children as a callback function (for For, Index, etc.)
-fn get_children_callback<'a>(element: &JSXElement<'a>) -> String {
-    // The children of For/Index should be an arrow function
-    // <For each={items}>{item => <div>{item}</div>}</For>
-    for child in &element.children {
-        if let JSXChild::ExpressionContainer(container) = child {
-            if let Some(expr) = container.expression.as_expression() {
-                // This should be an arrow function like: item => <div>{item}</div>
-                return expr_to_string(expr);
-            }
-        }
-    }
-    // If no expression child found, return a no-op function
-    "() => undefined".to_string()
-}
+// find_prop and get_children_callback moved to common module

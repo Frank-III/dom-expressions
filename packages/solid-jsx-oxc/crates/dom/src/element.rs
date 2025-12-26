@@ -8,7 +8,7 @@ use oxc_ast::ast::{
 
 use common::{
     TransformOptions,
-    is_svg_element, is_dynamic, expr_to_string,
+    is_svg_element, is_dynamic, expr_to_string, get_attr_name, is_namespaced_attr,
     constants::{ALIASES, DELEGATED_EVENTS, VOID_ELEMENTS},
     expression::{escape_html, to_event_name},
 };
@@ -93,13 +93,11 @@ fn element_needs_runtime_access(element: &JSXElement) -> bool {
     for attr in &element.opening_element.attributes {
         match attr {
             JSXAttributeItem::Attribute(attr) => {
-                let key = match &attr.name {
-                    JSXAttributeName::Identifier(id) => id.name.as_str(),
-                    JSXAttributeName::NamespacedName(ns) => {
-                        // Namespaced attributes like on:click or use:directive always need access
-                        return true;
-                    }
-                };
+                // Namespaced attributes like on:click or use:directive always need access
+                if is_namespaced_attr(&attr.name) {
+                    return true;
+                }
+                let key = get_attr_name(&attr.name);
 
                 // ref needs access
                 if key == "ref" {
@@ -169,12 +167,7 @@ fn transform_attribute<'a>(
     context: &BlockContext,
     options: &TransformOptions<'a>,
 ) {
-    let key = match &attr.name {
-        JSXAttributeName::Identifier(id) => id.name.to_string(),
-        JSXAttributeName::NamespacedName(ns) => {
-            format!("{}:{}", ns.namespace.name, ns.name.name)
-        }
-    };
+    let key = get_attr_name(&attr.name);
 
     // Handle different attribute types
     if key == "ref" {
@@ -189,11 +182,6 @@ fn transform_attribute<'a>(
 
     if key.starts_with("use:") {
         transform_directive(attr, &key, elem_id, result, context);
-        return;
-    }
-
-    if key.starts_with("prop:") {
-        transform_property_binding(attr, &key, elem_id, result, context);
         return;
     }
 
@@ -346,52 +334,6 @@ fn transform_directive<'a>(
             directive_name, elem_id, value
         ),
     });
-}
-
-/// Transform prop: property binding
-/// e.g., prop:value={val} -> element.value = val
-fn transform_property_binding<'a>(
-    attr: &JSXAttribute<'a>,
-    key: &str,
-    elem_id: &str,
-    result: &mut TransformResult,
-    context: &BlockContext,
-) {
-    let prop_name = &key[5..]; // Strip "prop:"
-
-    match &attr.value {
-        Some(JSXAttributeValue::ExpressionContainer(container)) => {
-            if let Some(expr) = container.expression.as_expression() {
-                let expr_str = expr_to_string(expr);
-
-                if is_dynamic(expr) {
-                    // Dynamic property - wrap in effect
-                    context.register_helper("effect");
-                    result.exprs.push(Expr {
-                        code: format!("effect(() => {}.{} = {})", elem_id, prop_name, expr_str),
-                    });
-                } else {
-                    // Static expression - direct assignment
-                    result.exprs.push(Expr {
-                        code: format!("{}.{} = {}", elem_id, prop_name, expr_str),
-                    });
-                }
-            }
-        }
-        Some(JSXAttributeValue::StringLiteral(lit)) => {
-            // Static string value
-            result.exprs.push(Expr {
-                code: format!("{}.{} = \"{}\"", elem_id, prop_name, escape_html(&lit.value, false)),
-            });
-        }
-        None => {
-            // Boolean property: prop:disabled -> element.disabled = true
-            result.exprs.push(Expr {
-                code: format!("{}.{} = true", elem_id, prop_name),
-            });
-        }
-        _ => {}
-    }
 }
 
 /// Transform style attribute
