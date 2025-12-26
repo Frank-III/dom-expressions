@@ -13,7 +13,7 @@ use oxc_traverse::{Traverse, TraverseCtx, traverse_mut};
 use oxc_semantic::SemanticBuilder;
 use oxc_parser::Parser;
 
-use common::{TransformOptions, is_component, get_tag_name};
+use common::{TransformOptions, is_component, get_tag_name, expr_to_string};
 
 use crate::ir::{SSRContext, SSRResult};
 use crate::element::transform_element;
@@ -68,11 +68,13 @@ impl<'a> SSRTransform<'a> {
             JSXChild::ExpressionContainer(container) => {
                 self.transform_expression_container(container)
             }
-            JSXChild::Spread(_) => {
-                // Spread children - treat as dynamic
+            JSXChild::Spread(spread) => {
+                // Spread children - extract and use the spread expression
                 let mut result = SSRResult::new();
                 self.context.register_helper("escape");
-                result.push_dynamic("/* spread */".to_string(), false, false);
+                let expr_str = expr_to_string(&spread.expression);
+                // Spread children are typically arrays that need to be joined
+                result.push_dynamic(format!("[].concat({}).join(\"\")", expr_str), false, true);
                 Some(result)
             }
         }
@@ -129,10 +131,11 @@ impl<'a> SSRTransform<'a> {
         &self,
         container: &JSXExpressionContainer<'a>,
     ) -> Option<SSRResult> {
-        if let Some(_expr) = container.expression.as_expression() {
+        if let Some(expr) = container.expression.as_expression() {
             self.context.register_helper("escape");
             let mut result = SSRResult::new();
-            result.push_dynamic("/* expr */".to_string(), false, false);
+            let expr_str = expr_to_string(expr);
+            result.push_dynamic(expr_str, false, false);
             Some(result)
         } else {
             None

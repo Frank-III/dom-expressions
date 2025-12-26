@@ -66,23 +66,92 @@ pub fn transform_element<'a>(
 
 /// Transform element with spread attributes using ssrElement()
 fn transform_element_with_spread<'a>(
-    _element: &JSXElement<'a>,
+    element: &JSXElement<'a>,
     tag_name: &str,
     context: &SSRContext,
     options: &TransformOptions<'a>,
 ) -> SSRResult {
     context.register_helper("ssrElement");
     context.register_helper("escape");
+    context.register_helper("mergeProps");
 
     let mut result = SSRResult::new();
     result.has_spread = true;
 
-    // For spread, we generate: ssrElement("tag", props, children, needsHydrationKey)
-    // This is handled at code generation time
+    // Build the props - collect spreads and regular attributes
+    let mut props_parts: Vec<String> = Vec::new();
+
+    for attr in &element.opening_element.attributes {
+        match attr {
+            JSXAttributeItem::SpreadAttribute(spread) => {
+                // Add spread directly
+                let expr_str = expr_to_string(&spread.argument);
+                props_parts.push(expr_str);
+            }
+            JSXAttributeItem::Attribute(attr) => {
+                let key = match &attr.name {
+                    JSXAttributeName::Identifier(id) => id.name.to_string(),
+                    JSXAttributeName::NamespacedName(ns) => {
+                        format!("{}:{}", ns.namespace.name, ns.name.name)
+                    }
+                };
+
+                // Skip client-only attributes
+                if key == "ref" || key.starts_with("on") || key.starts_with("use:") || key.starts_with("prop:") {
+                    continue;
+                }
+
+                // Handle aliases
+                let attr_name = if is_svg_element(tag_name) {
+                    key.clone()
+                } else {
+                    ALIASES.get(key.as_str()).copied().unwrap_or(&key).to_string()
+                };
+
+                let value_str = match &attr.value {
+                    Some(JSXAttributeValue::StringLiteral(lit)) => {
+                        format!("\"{}\"", escape_html(&lit.value, true))
+                    }
+                    Some(JSXAttributeValue::ExpressionContainer(container)) => {
+                        if let Some(expr) = container.expression.as_expression() {
+                            expr_to_string(expr)
+                        } else {
+                            "undefined".to_string()
+                        }
+                    }
+                    None => "true".to_string(),
+                    _ => "undefined".to_string(),
+                };
+
+                props_parts.push(format!("{{ \"{}\": {} }}", attr_name, value_str));
+            }
+        }
+    }
+
+    // Build merged props expression
+    let props_expr = if props_parts.is_empty() {
+        "{}".to_string()
+    } else if props_parts.len() == 1 {
+        props_parts.into_iter().next().unwrap()
+    } else {
+        format!("mergeProps({})", props_parts.join(", "))
+    };
+
+    // Build children
+    let is_void = VOID_ELEMENTS.contains(tag_name);
+    let children_expr = if is_void || element.children.is_empty() {
+        "undefined".to_string()
+    } else {
+        build_children_expr(element, context, options)
+    };
+
+    // Generate: ssrElement("tag", props, children, needsHydrationKey)
     result.push_dynamic(
         format!(
-            "ssrElement(\"{}\", /* props */, /* children */, {})",
+            "ssrElement(\"{}\", {}, {}, {})",
             tag_name,
+            props_expr,
+            children_expr,
             context.hydratable && options.hydratable
         ),
         false,
@@ -90,6 +159,55 @@ fn transform_element_with_spread<'a>(
     );
 
     result
+}
+
+/// Build children expression for ssrElement
+fn build_children_expr<'a>(
+    element: &JSXElement<'a>,
+    context: &SSRContext,
+    _options: &TransformOptions<'a>,
+) -> String {
+    let mut parts: Vec<String> = Vec::new();
+
+    for child in &element.children {
+        match child {
+            oxc_ast::ast::JSXChild::Text(text) => {
+                let content = common::expression::trim_whitespace(&text.value);
+                if !content.is_empty() {
+                    parts.push(format!("\"{}\"", escape_html(&content, false)));
+                }
+            }
+            oxc_ast::ast::JSXChild::ExpressionContainer(container) => {
+                if let Some(expr) = container.expression.as_expression() {
+                    let expr_str = expr_to_string(expr);
+                    context.register_helper("escape");
+                    parts.push(format!("escape({})", expr_str));
+                }
+            }
+            oxc_ast::ast::JSXChild::Element(child_elem) => {
+                let child_tag = common::get_tag_name(child_elem);
+                if common::is_component(&child_tag) {
+                    context.register_helper("createComponent");
+                    // Simple component call - would need full transform for complex cases
+                    parts.push(format!("createComponent({}, {{}})", child_tag));
+                } else {
+                    // For nested elements with spread, we'd need to recursively build
+                    // For now, generate an ssr template string
+                    context.register_helper("ssr");
+                    parts.push(format!("ssr`<{}></{}>` ", child_tag, child_tag));
+                }
+            }
+            _ => {}
+        }
+    }
+
+    if parts.is_empty() {
+        "undefined".to_string()
+    } else if parts.len() == 1 {
+        parts.into_iter().next().unwrap()
+    } else {
+        format!("[{}].join(\"\")", parts.join(", "))
+    }
 }
 
 /// Transform element attributes for SSR
@@ -289,8 +407,59 @@ fn transform_children<'a>(
 
             oxc_ast::ast::JSXChild::Fragment(fragment) => {
                 // Recursively process fragment children
-                for _frag_child in &fragment.children {
-                    // TODO: Handle fragment children similarly
+                for frag_child in &fragment.children {
+                    match frag_child {
+                        oxc_ast::ast::JSXChild::Text(text) => {
+                            let content = common::expression::trim_whitespace(&text.value);
+                            if !content.is_empty() {
+                                if result.skip_escape {
+                                    result.push_static(&content);
+                                } else {
+                                    result.push_static(&escape_html(&content, false));
+                                }
+                            }
+                        }
+                        oxc_ast::ast::JSXChild::Element(child_elem) => {
+                            let child_tag = common::get_tag_name(child_elem);
+                            let child_result = if common::is_component(&child_tag) {
+                                let child_transformer = |child: &oxc_ast::ast::JSXChild<'a>| -> Option<SSRResult> {
+                                    match child {
+                                        oxc_ast::ast::JSXChild::Element(el) => {
+                                            let tag = common::get_tag_name(el);
+                                            Some(if common::is_component(&tag) {
+                                                let mut r = SSRResult::new();
+                                                r.push_dynamic(format!("createComponent({}, {{}})", tag), false, false);
+                                                r
+                                            } else {
+                                                transform_element(el, &tag, context, options)
+                                            })
+                                        }
+                                        _ => None,
+                                    }
+                                };
+                                crate::component::transform_component(child_elem, &child_tag, context, options, &child_transformer)
+                            } else {
+                                transform_element(child_elem, &child_tag, context, options)
+                            };
+                            result.merge(child_result);
+                        }
+                        oxc_ast::ast::JSXChild::ExpressionContainer(container) => {
+                            if let Some(expr) = container.expression.as_expression() {
+                                let expr_str = expr_to_string(expr);
+                                context.register_helper("escape");
+                                if result.skip_escape {
+                                    result.push_dynamic(expr_str, false, true);
+                                } else {
+                                    result.push_dynamic(expr_str, false, false);
+                                }
+                            }
+                        }
+                        // Nested fragments - recurse
+                        oxc_ast::ast::JSXChild::Fragment(_) | oxc_ast::ast::JSXChild::Spread(_) => {
+                            // For deeply nested fragments/spreads, we'd need recursion
+                            // For now, skip to avoid infinite loops
+                        }
+                    }
                 }
             }
 
