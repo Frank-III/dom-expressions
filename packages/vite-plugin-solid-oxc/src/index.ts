@@ -136,7 +136,9 @@ export default function solidOxc(options: SolidOxcOptions = {}): Plugin {
     },
 
     async transform(code, id) {
-      if (!filter(id)) {
+      const fileId = id.split('?', 1)[0];
+
+      if (!filter(fileId)) {
         return null;
       }
 
@@ -149,7 +151,7 @@ export default function solidOxc(options: SolidOxcOptions = {}): Plugin {
 
       try {
         const result = solidJsxOxc.transformJsx(code, {
-          filename: id,
+          filename: fileId,
           module_name: opts.moduleName,
           generate,
           hydratable: opts.hydratable,

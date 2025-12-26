@@ -111,8 +111,9 @@ fn element_needs_runtime_access(element: &JSXElement) -> bool {
                 }
                 let key = get_attr_name(&attr.name);
 
-                // ref needs access
-                if key == "ref" {
+                // ref and inner content setters need access
+                if key == "ref" || key == "innerHTML" || key == "textContent" || key == "innerText"
+                {
                     return true;
                 }
 
@@ -121,13 +122,10 @@ fn element_needs_runtime_access(element: &JSXElement) -> bool {
                     return true;
                 }
 
-                // Check if attribute value is dynamic
-                if let Some(JSXAttributeValue::ExpressionContainer(container)) = &attr.value {
-                    if let Some(expr) = container.expression.as_expression() {
-                        if is_dynamic(expr) {
-                            return true;
-                        }
-                    }
+                // Any expression container needs runtime access (we may need to run setters/helpers).
+                // This keeps id generation consistent with the rest of the transform.
+                if matches!(&attr.value, Some(JSXAttributeValue::ExpressionContainer(_))) {
+                    return true;
                 }
             }
             JSXAttributeItem::SpreadAttribute(_) => {
@@ -249,7 +247,6 @@ fn transform_attribute<'a>(
 
     // Handle style attribute specially
     if key == "style" {
-        let elem_id = elem_id.expect("style requires an element id");
         transform_style(attr, elem_id, result, context);
         return;
     }
@@ -484,7 +481,7 @@ fn transform_attr<'a>(
 /// Transform style attribute
 fn transform_style<'a>(
     attr: &JSXAttribute<'a>,
-    elem_id: &str,
+    elem_id: Option<&str>,
     result: &mut TransformResult,
     context: &BlockContext,
 ) {
@@ -511,6 +508,7 @@ fn transform_style<'a>(
                 }
 
                 // Dynamic style - use style helper
+                let elem_id = elem_id.expect("style helper requires an element id");
                 context.register_helper("style");
                 if is_dynamic(expr) {
                     context.register_helper("effect");

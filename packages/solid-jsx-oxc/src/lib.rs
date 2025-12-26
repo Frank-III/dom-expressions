@@ -163,7 +163,6 @@ fn transform_internal(source: &str, options: &TransformOptions) -> CodegenReturn
         .build(&program)
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
