@@ -1,8 +1,8 @@
 //! Transform options for the Solid JSX compiler
 
+use oxc_span::SourceType;
 use std::cell::RefCell;
 use std::collections::HashSet;
-use oxc_span::SourceType;
 
 /// Configuration options for the JSX transform
 #[derive(Default)]

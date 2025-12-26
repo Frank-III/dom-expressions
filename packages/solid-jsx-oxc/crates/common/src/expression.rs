@@ -1,6 +1,6 @@
 //! Expression utilities for working with OXC AST
 
-use oxc_ast::ast::{Expression, Statement, JSXElement, JSXChild};
+use oxc_ast::ast::{Expression, JSXChild, JSXElement, Statement};
 use oxc_codegen::{Codegen, CodegenOptions};
 use oxc_span::Span;
 
@@ -16,9 +16,7 @@ pub fn stmt_to_string(stmt: &Statement<'_>) -> String {
     // For statements, we need to wrap in a minimal program context
     // But for most cases we just need expression statements
     match stmt {
-        Statement::ExpressionStatement(expr_stmt) => {
-            expr_to_string(&expr_stmt.expression)
-        }
+        Statement::ExpressionStatement(expr_stmt) => expr_to_string(&expr_stmt.expression),
         _ => {
             // Fallback - this is less common
             format!("/* unsupported statement */")
@@ -91,11 +89,14 @@ pub fn trim_whitespace(text: &str) -> String {
     result.trim().to_string()
 }
 
-/// Convert event name from JSX format (onClick) to DOM format (click)
+/// Convert event name from JSX format (onClick or on:click) to DOM format (click)
 pub fn to_event_name(name: &str) -> String {
-    if name.starts_with("on") {
+    if name.starts_with("on:") {
+        // Handle on:click -> click (namespaced form)
+        name[3..].to_string()
+    } else if name.starts_with("on") {
         let event = &name[2..];
-        // Handle onFoo -> foo (lowercase first char)
+        // Handle onClick -> click (lowercase first char)
         if let Some(first) = event.chars().next() {
             format!("{}{}", first.to_lowercase(), &event[first.len_utf8()..])
         } else {

@@ -20,10 +20,7 @@ pub fn create_template_declaration(
             index, content
         )
     } else {
-        format!(
-            "const _tmpl${} = _template(\"{}\");",
-            index, content
-        )
+        format!("const _tmpl${} = _template(\"{}\");", index, content)
     }
 }
 
@@ -37,16 +34,13 @@ pub fn create_template_clone(index: usize) -> String {
 pub fn generate_template_code(
     result: &TransformResult,
     context: &BlockContext,
-    options: &TransformOptions,
+    _options: &TransformOptions,
 ) -> String {
     let mut code = String::new();
 
     // If we have a template, create the declaration
     if !result.template.is_empty() && !result.skip_template {
-        let template_index = context.push_template(
-            result.template.clone(),
-            result.is_svg,
-        );
+        let template_index = context.push_template(result.template.clone(), result.is_svg);
 
         // Generate variable declarations
         if let Some(id) = &result.id {
@@ -59,10 +53,7 @@ pub fn generate_template_code(
 
         // Generate walker declarations for child elements
         for decl in &result.declarations {
-            code.push_str(&format!(
-                "const {} = {};\n",
-                decl.name, decl.init
-            ));
+            code.push_str(&format!("const {} = {};\n", decl.name, decl.init));
         }
     }
 
@@ -99,7 +90,7 @@ pub fn generate_template_code(
 }
 
 /// Generate attribute setter expression
-fn generate_set_attr(binding: &crate::ir::DynamicBinding) -> String {
+pub fn generate_set_attr(binding: &crate::ir::DynamicBinding) -> String {
     let key = &binding.key;
     let elem = &binding.elem;
     let value = &binding.value;
@@ -112,9 +103,9 @@ fn generate_set_attr(binding: &crate::ir::DynamicBinding) -> String {
             format!("{}.className = {}", elem, value)
         }
     } else if key == "style" {
-        format!("_style({}, {})", elem, value)
+        format!("style({}, {})", elem, value)
     } else if key == "classList" {
-        format!("_classList({}, {})", elem, value)
+        format!("classList({}, {})", elem, value)
     } else if key == "textContent" || key == "innerText" {
         format!("{}.data = {}", elem, value)
     } else if common::constants::PROPERTIES.contains(key.as_str()) {

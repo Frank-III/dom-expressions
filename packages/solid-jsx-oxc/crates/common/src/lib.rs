@@ -1,9 +1,15 @@
 pub mod check;
 pub mod constants;
-pub mod options;
 pub mod expression;
+pub mod options;
 
-pub use check::{is_component, is_built_in, is_svg_element, get_tag_name, is_dynamic, find_prop, find_prop_value, get_attr_value, get_attr_name, is_namespaced_attr};
+pub use check::{
+    find_prop, find_prop_value, get_attr_name, get_attr_value, get_tag_name, is_built_in,
+    is_component, is_dynamic, is_namespaced_attr, is_svg_element,
+};
 pub use constants::*;
+pub use expression::{
+    escape_html, expr_to_string, get_children_callback, stmt_to_string, to_event_name,
+    trim_whitespace,
+};
 pub use options::*;
-pub use expression::{expr_to_string, stmt_to_string, escape_html, trim_whitespace, to_event_name, get_children_callback};

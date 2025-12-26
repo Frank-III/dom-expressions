@@ -19,7 +19,7 @@ pub use common::TransformOptions;
 use napi_derive::napi;
 
 use oxc_allocator::Allocator;
-use oxc_codegen::{Codegen, CodegenReturn, CodegenOptions, IndentChar};
+use oxc_codegen::{Codegen, CodegenOptions, CodegenReturn, IndentChar};
 use oxc_parser::Parser;
 use oxc_span::SourceType;
 
@@ -119,9 +119,7 @@ fn transform_internal(source: &str, options: &TransformOptions) -> CodegenReturn
     let source_type = SourceType::from_path(options.filename).unwrap_or(SourceType::tsx());
 
     // Parse the source
-    let mut program = Parser::new(&allocator, source, source_type)
-        .parse()
-        .program;
+    let mut program = Parser::new(&allocator, source, source_type).parse().program;
 
     // Run the appropriate transform based on generate mode
     // SAFETY: We create a raw pointer to `options` and dereference it to get a reference
@@ -239,10 +237,22 @@ mod tests {
             (r#"<div class="hello">world</div>"#, "basic element"),
             (r#"<div class={style()}>content</div>"#, "dynamic class"),
             (r#"<div>{count()}</div>"#, "dynamic child"),
-            (r#"<For each={items}>{item => <li>{item}</li>}</For>"#, "For loop"),
-            (r#"<Show when={visible}><div>shown</div></Show>"#, "Show conditional"),
-            (r#"<Button><span>icon</span> Click</Button>"#, "component with JSX child"),
-            (r#"<Show when={visible}><div class="content">shown</div></Show>"#, "Show with JSX child"),
+            (
+                r#"<For each={items}>{item => <li>{item}</li>}</For>"#,
+                "For loop",
+            ),
+            (
+                r#"<Show when={visible}><div>shown</div></Show>"#,
+                "Show conditional",
+            ),
+            (
+                r#"<Button><span>icon</span> Click</Button>"#,
+                "component with JSX child",
+            ),
+            (
+                r#"<Show when={visible}><div class="content">shown</div></Show>"#,
+                "Show with JSX child",
+            ),
         ];
 
         for (source, label) in cases {
@@ -251,7 +261,10 @@ mod tests {
                 ..TransformOptions::solid_defaults()
             };
             let result = transform(source, Some(options));
-            println!("\n=== {} ===\nInput:  {}\nOutput: {}", label, source, result.code);
+            println!(
+                "\n=== {} ===\nInput:  {}\nOutput: {}",
+                label, source, result.code
+            );
         }
     }
 
@@ -263,20 +276,44 @@ mod tests {
             (r#"<div class={style()}>content</div>"#, "dynamic class"),
             (r#"<div>{count()}</div>"#, "dynamic child"),
             (r#"<div onClick={handler}>click</div>"#, "event handler"),
-            (r#"<Button onClick={handler}>Click me</Button>"#, "component"),
-            (r#"<Button><span>icon</span> Click</Button>"#, "component with JSX child"),
-            (r#"<Show when={visible}><div class="content">shown</div></Show>"#, "Show with JSX child"),
-            (r#"<div><span class={style()}>nested dynamic</span></div>"#, "nested dynamic element"),
-            (r#"<div><span onClick={handler}>nested event</span></div>"#, "nested event handler"),
-            (r#"<div style={{ color: 'red', fontSize: 14 }}>styled</div>"#, "style object"),
-            (r#"<div style={dynamicStyle()}>dynamic style</div>"#, "dynamic style"),
+            (
+                r#"<Button onClick={handler}>Click me</Button>"#,
+                "component",
+            ),
+            (
+                r#"<Button><span>icon</span> Click</Button>"#,
+                "component with JSX child",
+            ),
+            (
+                r#"<Show when={visible}><div class="content">shown</div></Show>"#,
+                "Show with JSX child",
+            ),
+            (
+                r#"<div><span class={style()}>nested dynamic</span></div>"#,
+                "nested dynamic element",
+            ),
+            (
+                r#"<div><span onClick={handler}>nested event</span></div>"#,
+                "nested event handler",
+            ),
+            (
+                r#"<div style={{ color: 'red', fontSize: 14 }}>styled</div>"#,
+                "style object",
+            ),
+            (
+                r#"<div style={dynamicStyle()}>dynamic style</div>"#,
+                "dynamic style",
+            ),
             (r#"<div innerHTML={html} />"#, "innerHTML"),
         ];
 
         for (source, label) in cases {
             // DOM mode is the default
             let result = transform(source, None);
-            println!("\n=== DOM: {} ===\nInput:  {}\nOutput: {}", label, source, result.code);
+            println!(
+                "\n=== DOM: {} ===\nInput:  {}\nOutput: {}",
+                label, source, result.code
+            );
         }
     }
 }

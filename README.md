@@ -1,88 +1,144 @@
-# DOM Expressions
+# solid-jsx-oxc
 
-[![Build Status](https://github.com/ryansolid/dom-expressions/workflows/DOMExpressions%20CI/badge.svg)](https://github.com/ryansolid/dom-expressions/actions/workflows/main-ci.yml)
-[![Coverage Status](https://img.shields.io/coveralls/github/ryansolid/dom-expressions.svg?style=flat)](https://coveralls.io/github/ryansolid/dom-expressions?branch=main)
-[![NPM Version](https://img.shields.io/npm/v/dom-expressions.svg?style=flat)](https://www.npmjs.com/package/dom-expressions)
-![](https://img.shields.io/bundlephobia/minzip/dom-expressions.svg?style=flat)
-![](https://img.shields.io/npm/dt/dom-expressions.svg?style=flat)
-[![Gitter](https://img.shields.io/gitter/room/dom-expressions/community)](https://gitter.im/dom-expressions/community)
+A high-performance JSX compiler for SolidJS built with [OXC](https://oxc.rs/) and Rust.
 
-DOM Expressions is a Rendering Runtime for reactive libraries that do fine grained change detection. These libraries rely on concepts like Observables and Signals rather than Lifecycle functions and the Virtual DOM. Standard JSX transformers are not helpful to these libraries as they need to evaluate their expressions in isolation to avoid re-rendering unnecessary parts of the DOM.
+## Features
 
-This package wraps libraries like KnockoutJS or MobX and use them independent of their current render systems using a small library to render pure DOM expressions. This approach has been proven to be incredibly fast, dominating the highest rankings in the [JS Framework Benchmark](https://github.com/krausest/js-framework-benchmark).
+- **Fast** - Built on OXC's Rust-based parser and transformer
+- **Complete** - Full SolidJS JSX support including all directives and special attributes
+- **Native** - NAPI-RS bindings for seamless Node.js integration
+- **Compatible** - Drop-in replacement for `babel-plugin-jsx-dom-expressions`
 
-It is designed to be used with a companion render API. Currently there is a JSX Babel Plugin, and Tagged Template Literals, and HyperScript runtime APIs. Most developers will not use this package directly. It is intended to help author your own Reactive Libraries and not to be used directly in projects.
+## Installation
 
-## Example Implementations
-
-- [Solid](https://github.com/ryansolid/solid): A declarative JavaScript library for building user interfaces.
-- [mobx-jsx](https://github.com/ryansolid/mobx-jsx): Ever wondered how much more performant MobX is without React? A lot.
-- [vuerx-jsx](https://github.com/ryansolid/vuerx-jsx): Ever wondered how much more performant Vue is without Vue? ...renderer built on @vue/reactivity
-- [ko-jsx](https://github.com/ryansolid/ko-jsx): Knockout JS with JSX rendering.
-- [s-jsx](https://github.com/ryansolid/s-jsx): Testbed for trying new techniques in the fine grained space.
-
-## Runtime Generator
-
-Dom Expressions is designed to allow you to create a runtime to be tree shakeable. It does that by using "babel-plugin-transform-rename-import" to rename the import to your reactive core file. Setup the babel plugin and then `export * from "dom-expressions/src/runtime"`from your runtime. Be sure to not exclude the dom-expressions node_module.
-
-```js
-{
-  plugins: [
-    [
-      "babel-plugin-transform-rename-import",
-      {
-        original: "rxcore",
-        replacement: "../src/core"
-      }
-    ]
-  ];
-}
-```
-What is the reactive core file. It exports an object with the methods required by the runtime.
-Example:
-
-```js
-import S, { root, value, sample } from "s-js";
-
-const currentContext = null;
-
-function memo(fn, equal) {
-  if (typeof fn !== "function") return fn;
-  if (!equal) return S(fn);
-  const s = value(sample(fn));
-  S(() => s(fn()));
-  return s;
-}
-
-function createComponent(Comp, props) {
-  return sample(() => Comp(props));
-}
-
-export { root, S as effect, memo, createComponent, currentContext };
+```bash
+npm install solid-jsx-oxc
+# or
+bun add solid-jsx-oxc
+# or
+pnpm add solid-jsx-oxc
 ```
 
-## Runtime Renderers
+## Usage
 
-Once you have generated a runtime it can be used with companion render APIs:
+### With Vite
 
-### JSX
+```bash
+npm install vite-plugin-solid-oxc
+```
 
-[Babel Plugin JSX DOM Expressions](https://github.com/ryansolid/dom-expressions/blob/main/packages/babel-plugin-jsx-dom-expressions) is by far the best way to use this library. Pre-compilation lends to the best performance since the whole template can be analyzed and optimal compiled into the most performant JavaScript. This allows for not only the most performant code, but the cleanest and the smallest.
+```js
+// vite.config.js
+import { defineConfig } from 'vite';
+import solidOxc from 'vite-plugin-solid-oxc';
 
-### Tagged Template
+export default defineConfig({
+  plugins: [solidOxc()],
+});
+```
 
-If precompilation is not an option Tagged Template Literals are the next best thing. [Lit DOM Expressions](https://github.com/ryansolid/dom-expressions/blob/main/packages/lit-dom-expressions) provides a similar experience to the JSX, compiling templates at runtime into similar code on first run. This option is the largest in size and memory usage but it keeps most of the performance and syntax from the JSX version.
+### With Rolldown
 
-### HyperScript
+```bash
+npm install rolldown-plugin-solid-oxc
+```
 
-While not as performant as the other options this library provides a mechanism to expose a HyperScript version. [Hyper DOM Expressions](https://github.com/ryansolid/dom-expressions/blob/main/packages/hyper-dom-expressions) offers the greatest flexibility working with existing tooling for HyperScript and enables pure JS DSLs.
+```js
+// rolldown.config.js
+import solidOxc from 'rolldown-plugin-solid-oxc';
 
-## Work in Progress
+export default {
+  plugins: [solidOxc()],
+};
+```
 
-This is still a work in progress. My goal here is to better understand and generalize this approach to provide non Virtual DOM alternatives to developing web applications.
+### Direct API Usage
 
-## Cross Site Scripting (XSS)
+```js
+import { transform } from 'solid-jsx-oxc';
 
-dom-expressions automatically escapes inserts and attributes in HTML. The exception is when HTML is inserted via the innerHTML property, which bypasses the escaping. Additionally, it's important to note that `<noscript>` are also outside of the purview of the library, since those tags and its contents are evaluated even without JavaScript. It is important to sanitize any strings in attributes, especially when inside `<noscript>` tags.
+const result = transform(code, {
+  mode: 'dom', // or 'ssr'
+  moduleName: 'solid-js/web',
+  builtIns: ['For', 'Show', 'Switch', 'Match', 'Suspense', 'ErrorBoundary', 'Portal', 'Dynamic'],
+  delegateEvents: true,
+  wrapConditionals: true,
+  contextToCustomElements: false,
+  generate: 'dom', // or 'ssr'
+});
 
-As a rule-of-thumb it is recommended to avoid injecting HTML into your page as much as possible, make sure the contents of <noscript> are properly sanitized, and add a strict Content Security Policy to your application.
+console.log(result.code);
+```
+
+## Supported Features
+
+| Feature | Status |
+|---------|--------|
+| Basic elements & attributes | ✅ |
+| Dynamic attributes | ✅ |
+| Event delegation (`onClick`) | ✅ |
+| Non-delegated events (`on:click`) | ✅ |
+| Capture events (`onClickCapture`) | ✅ |
+| `prop:` prefix | ✅ |
+| `attr:` prefix | ✅ |
+| `classList` object | ✅ |
+| `style` object | ✅ |
+| Refs (variable & callback) | ✅ |
+| Spread props | ✅ |
+| Built-in components (`For`, `Show`, etc.) | ✅ |
+| Directives (`use:`) | ✅ |
+| SVG elements | ✅ |
+| Fragments | ✅ |
+| SSR mode | ✅ |
+
+## Packages
+
+| Package | Description |
+|---------|-------------|
+| [solid-jsx-oxc](./packages/solid-jsx-oxc) | Core OXC-based JSX compiler |
+| [vite-plugin-solid-oxc](./packages/vite-plugin-solid-oxc) | Vite plugin |
+| [rolldown-plugin-solid-oxc](./packages/rolldown-plugin-solid-oxc) | Rolldown plugin |
+| [babel-plugin-jsx-dom-expressions](./packages/babel-plugin-jsx-dom-expressions) | Original Babel plugin (for reference) |
+| [dom-expressions](./packages/dom-expressions) | Runtime library |
+
+## Development
+
+### Prerequisites
+
+- [Rust](https://rustup.rs/) (latest stable)
+- [Bun](https://bun.sh/) (or Node.js 18+)
+
+### Building
+
+```bash
+# Install dependencies
+bun install
+
+# Build the native module
+cd packages/solid-jsx-oxc
+bun run build
+
+# Run tests
+bun run test
+```
+
+### Testing
+
+```bash
+# Run Rust tests
+cd packages/solid-jsx-oxc
+cargo test
+
+# Run all tests
+bun run test
+```
+
+## License
+
+MIT
+
+## Related Projects
+
+- [SolidJS](https://github.com/solidjs/solid) - A declarative JavaScript library for building user interfaces
+- [OXC](https://oxc.rs/) - The JavaScript Oxidation Compiler
+- [dom-expressions](https://github.com/ryansolid/dom-expressions) - Original DOM Expressions runtime

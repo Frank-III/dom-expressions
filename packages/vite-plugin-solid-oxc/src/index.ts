@@ -120,7 +120,7 @@ export default function solidOxc(options: SolidOxcOptions = {}): Plugin {
 
     configResolved(config) {
       isDev = config.command === 'serve';
-      isSSR = opts.ssr ?? config.build?.ssr ?? false;
+      isSSR = opts.ssr ?? (typeof config.build?.ssr === 'boolean' ? config.build.ssr : !!config.build?.ssr);
     },
 
     async buildStart() {
@@ -150,13 +150,13 @@ export default function solidOxc(options: SolidOxcOptions = {}): Plugin {
       try {
         const result = solidJsxOxc.transformJsx(code, {
           filename: id,
-          moduleName: opts.moduleName,
+          module_name: opts.moduleName,
           generate,
           hydratable: opts.hydratable,
-          delegateEvents: opts.delegateEvents,
-          wrapConditionals: opts.wrapConditionals,
-          contextToCustomElements: opts.contextToCustomElements,
-          sourceMap: true,
+          delegate_events: opts.delegateEvents,
+          wrap_conditionals: opts.wrapConditionals,
+          context_to_custom_elements: opts.contextToCustomElements,
+          source_map: true,
         });
 
         // Add HMR support in dev mode

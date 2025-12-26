@@ -4,15 +4,14 @@
 //! Unlike DOM, we don't create DOM nodes - we build strings.
 
 use oxc_ast::ast::{
-    JSXElement, JSXAttribute, JSXAttributeItem, JSXAttributeName,
-    JSXAttributeValue,
+    JSXAttribute, JSXAttributeItem, JSXAttributeName, JSXAttributeValue, JSXElement,
 };
 
 use common::{
-    TransformOptions,
-    is_svg_element, expr_to_string, get_attr_name,
-    constants::{PROPERTIES, CHILD_PROPERTIES, ALIASES, VOID_ELEMENTS},
+    constants::{ALIASES, CHILD_PROPERTIES, PROPERTIES, VOID_ELEMENTS},
+    expr_to_string,
     expression::escape_html,
+    get_attr_name, is_svg_element, TransformOptions,
 };
 
 use crate::ir::{SSRContext, SSRResult};
@@ -32,9 +31,11 @@ pub fn transform_element<'a>(
     result.skip_escape = is_script_or_style;
 
     // Check for spread attributes - need different handling
-    let has_spread = element.opening_element.attributes.iter().any(|a| {
-        matches!(a, JSXAttributeItem::SpreadAttribute(_))
-    });
+    let has_spread = element
+        .opening_element
+        .attributes
+        .iter()
+        .any(|a| matches!(a, JSXAttributeItem::SpreadAttribute(_)));
 
     if has_spread {
         return transform_element_with_spread(element, tag_name, context, options);
@@ -66,7 +67,7 @@ pub fn transform_element<'a>(
 
 /// Transform element with spread attributes using ssrElement()
 fn transform_element_with_spread<'a>(
-    _element: &JSXElement<'a>,
+    element: &JSXElement<'a>,
     tag_name: &str,
     context: &SSRContext,
     options: &TransformOptions<'a>,
@@ -77,12 +78,143 @@ fn transform_element_with_spread<'a>(
     let mut result = SSRResult::new();
     result.has_spread = true;
 
+    // Build props object - merge spreads with regular attributes
+    let mut props_parts: Vec<String> = vec![];
+    let is_svg = is_svg_element(tag_name);
+
+    for attr in &element.opening_element.attributes {
+        match attr {
+            JSXAttributeItem::SpreadAttribute(spread) => {
+                props_parts.push(format!("...{}", expr_to_string(&spread.argument)));
+            }
+            JSXAttributeItem::Attribute(attr) => {
+                let key = get_attr_name(&attr.name);
+                // Skip client-only attributes
+                if key == "ref"
+                    || key.starts_with("on")
+                    || key.starts_with("use:")
+                    || key.starts_with("prop:")
+                {
+                    continue;
+                }
+
+                let attr_name = if is_svg {
+                    key.clone()
+                } else {
+                    ALIASES
+                        .get(key.as_str())
+                        .copied()
+                        .unwrap_or(&key)
+                        .to_string()
+                };
+
+                match &attr.value {
+                    Some(JSXAttributeValue::StringLiteral(lit)) => {
+                        props_parts.push(format!(
+                            "\"{}\": \"{}\"",
+                            attr_name,
+                            escape_html(&lit.value, true)
+                        ));
+                    }
+                    Some(JSXAttributeValue::ExpressionContainer(container)) => {
+                        if let Some(expr) = container.expression.as_expression() {
+                            props_parts.push(format!(
+                                "\"{}\": {}",
+                                attr_name,
+                                expr_to_string(expr)
+                            ));
+                        }
+                    }
+                    None => {
+                        props_parts.push(format!("\"{}\": true", attr_name));
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+
+    let props_str = if props_parts.is_empty() {
+        "{}".to_string()
+    } else {
+        format!("{{ {} }}", props_parts.join(", "))
+    };
+
+    // Build children
+    let children_str = if element.children.is_empty() {
+        "null".to_string()
+    } else {
+        let mut children: Vec<String> = vec![];
+        for child in &element.children {
+            match child {
+                oxc_ast::ast::JSXChild::Text(text) => {
+                    let content = common::expression::trim_whitespace(&text.value);
+                    if !content.is_empty() {
+                        children.push(format!("\"{}\"", escape_html(&content, false)));
+                    }
+                }
+                oxc_ast::ast::JSXChild::ExpressionContainer(container) => {
+                    if let Some(expr) = container.expression.as_expression() {
+                        context.register_helper("escape");
+                        children.push(format!("escape({})", expr_to_string(expr)));
+                    }
+                }
+                oxc_ast::ast::JSXChild::Element(child_elem) => {
+                    // Recursively transform child element - check if component or native
+                    let child_tag = common::get_tag_name(child_elem);
+                    let child_result = if common::is_component(&child_tag) {
+                        // Component - use component transformer
+                        let child_transformer =
+                            |child: &oxc_ast::ast::JSXChild<'a>| -> Option<SSRResult> {
+                                match child {
+                                    oxc_ast::ast::JSXChild::Element(el) => {
+                                        let tag = common::get_tag_name(el);
+                                        Some(if common::is_component(&tag) {
+                                            let mut r = SSRResult::new();
+                                            r.push_dynamic(
+                                                format!("createComponent({}, {{}})", tag),
+                                                false,
+                                                false,
+                                            );
+                                            r
+                                        } else {
+                                            transform_element(el, &tag, context, options)
+                                        })
+                                    }
+                                    _ => None,
+                                }
+                            };
+                        crate::component::transform_component(
+                            child_elem,
+                            &child_tag,
+                            context,
+                            options,
+                            &child_transformer,
+                        )
+                    } else {
+                        transform_element(child_elem, &child_tag, context, options)
+                    };
+                    children.push(child_result.to_ssr_call_with_hydration(context.hydratable));
+                }
+                _ => {}
+            }
+        }
+        if children.len() == 1 {
+            children.pop().unwrap_or("null".to_string())
+        } else if children.is_empty() {
+            "null".to_string()
+        } else {
+            format!("[{}]", children.join(", "))
+        }
+    };
+
     // For spread, we generate: ssrElement("tag", props, children, needsHydrationKey)
-    // This is handled at code generation time
     result.push_dynamic(
         format!(
-            "ssrElement(\"{}\", /* props */, /* children */, {})",
+            "ssrElement(\"{}\", {}, {}, {})",
             tag_name,
+            props_str,
+            children_str,
             context.hydratable && options.hydratable
         ),
         false,
@@ -120,7 +252,8 @@ fn transform_attribute<'a>(
     let key = get_attr_name(&attr.name);
 
     // Skip client-only attributes
-    if key == "ref" || key.starts_with("on") || key.starts_with("use:") || key.starts_with("prop:") {
+    if key == "ref" || key.starts_with("on") || key.starts_with("use:") || key.starts_with("prop:")
+    {
         return;
     }
 
@@ -134,7 +267,11 @@ fn transform_attribute<'a>(
     let attr_name = if is_svg {
         key.clone()
     } else {
-        ALIASES.get(key.as_str()).copied().unwrap_or(&key).to_string()
+        ALIASES
+            .get(key.as_str())
+            .copied()
+            .unwrap_or(&key)
+            .to_string()
     };
 
     match &attr.value {
@@ -257,23 +394,34 @@ fn process_jsx_children<'a>(
                 let child_tag = common::get_tag_name(child_elem);
                 let child_result = if common::is_component(&child_tag) {
                     // Create a child transformer for nested components
-                    let child_transformer = |child: &oxc_ast::ast::JSXChild<'a>| -> Option<SSRResult> {
-                        match child {
-                            oxc_ast::ast::JSXChild::Element(el) => {
-                                let tag = common::get_tag_name(el);
-                                Some(if common::is_component(&tag) {
-                                    // For deeply nested components, use simple fallback
-                                    let mut r = SSRResult::new();
-                                    r.push_dynamic(format!("createComponent({}, {{}})", tag), false, false);
-                                    r
-                                } else {
-                                    transform_element(el, &tag, context, options)
-                                })
+                    let child_transformer =
+                        |child: &oxc_ast::ast::JSXChild<'a>| -> Option<SSRResult> {
+                            match child {
+                                oxc_ast::ast::JSXChild::Element(el) => {
+                                    let tag = common::get_tag_name(el);
+                                    Some(if common::is_component(&tag) {
+                                        // For deeply nested components, use simple fallback
+                                        let mut r = SSRResult::new();
+                                        r.push_dynamic(
+                                            format!("createComponent({}, {{}})", tag),
+                                            false,
+                                            false,
+                                        );
+                                        r
+                                    } else {
+                                        transform_element(el, &tag, context, options)
+                                    })
+                                }
+                                _ => None,
                             }
-                            _ => None,
-                        }
-                    };
-                    crate::component::transform_component(child_elem, &child_tag, context, options, &child_transformer)
+                        };
+                    crate::component::transform_component(
+                        child_elem,
+                        &child_tag,
+                        context,
+                        options,
+                        &child_transformer,
+                    )
                 } else {
                     transform_element(child_elem, &child_tag, context, options)
                 };

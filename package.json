@@ -1,12 +1,12 @@
 {
-  "name": "dom-expressions-build",
-  "description": "A Fine-Grained Runtime for Performant DOM Rendering",
+  "name": "solid-jsx-oxc-monorepo",
+  "description": "High-performance OXC-based JSX compiler for SolidJS",
   "version": "0.36.0",
   "author": "Ryan Carniato",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/ryansolid/dom-expressions"
+    "url": "https://github.com/ryansolid/solid-jsx-oxc"
   },
   "private": true,
   "workspaces": [

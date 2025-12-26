@@ -6,10 +6,7 @@
 use crate::ir::{SSRContext, SSRResult};
 
 /// Generate the final SSR output code from a result
-pub fn generate_ssr_code(
-    result: &SSRResult,
-    context: &SSRContext,
-) -> String {
+pub fn generate_ssr_code(result: &SSRResult, context: &SSRContext) -> String {
     let mut code = String::new();
 
     // Generate helper imports
@@ -18,7 +15,11 @@ pub fn generate_ssr_code(
         let helper_list: Vec<&String> = helpers.iter().collect();
         code.push_str(&format!(
             "import {{ {} }} from \"solid-js/web\";\n\n",
-            helper_list.iter().map(|h| h.as_str()).collect::<Vec<_>>().join(", ")
+            helper_list
+                .iter()
+                .map(|h| h.as_str())
+                .collect::<Vec<_>>()
+                .join(", ")
         ));
     }
 

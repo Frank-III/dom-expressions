@@ -1,14 +1,13 @@
 //! Component transform
 //! Handles <MyComponent /> -> createComponent(MyComponent, {...})
 
-use oxc_ast::ast::{
-    JSXElement, JSXAttribute, JSXAttributeItem, JSXAttributeName,
-    JSXAttributeValue, JSXChild,
+use oxc_ast::ast::{JSXAttributeItem, JSXAttributeName, JSXAttributeValue, JSXChild, JSXElement};
+
+use common::{
+    expr_to_string, find_prop, get_children_callback, is_built_in, is_dynamic, TransformOptions,
 };
 
-use common::{TransformOptions, is_built_in, is_dynamic, expr_to_string, get_children_callback, find_prop};
-
-use crate::ir::{BlockContext, TransformResult, Expr, ChildTransformer};
+use crate::ir::{BlockContext, ChildTransformer, Expr, TransformResult};
 
 /// Transform a component element
 pub fn transform_component<'a, 'b>(
@@ -90,7 +89,7 @@ fn transform_for<'a, 'b>(
     _transform_child: ChildTransformer<'a, 'b>,
 ) {
     context.register_helper("createComponent");
-    context.register_helper("For");
+    // Note: For is expected to be imported by user from solid-js, not added here
 
     let each_expr = get_prop_expr(element, "each");
     let children = get_children_callback(element);
@@ -111,7 +110,7 @@ fn transform_show<'a, 'b>(
     transform_child: ChildTransformer<'a, 'b>,
 ) {
     context.register_helper("createComponent");
-    context.register_helper("Show");
+    // Note: Show is expected to be imported by user from solid-js
 
     let when_expr = get_prop_expr(element, "when");
     let fallback_expr = get_prop_expr(element, "fallback");
@@ -133,7 +132,7 @@ fn transform_switch<'a, 'b>(
     transform_child: ChildTransformer<'a, 'b>,
 ) {
     context.register_helper("createComponent");
-    context.register_helper("Switch");
+    // Note: Switch is expected to be imported by user from solid-js
 
     let children = get_children_expr_transformed(element, context, transform_child);
 
@@ -153,7 +152,7 @@ fn transform_match<'a, 'b>(
     transform_child: ChildTransformer<'a, 'b>,
 ) {
     context.register_helper("createComponent");
-    context.register_helper("Match");
+    // Note: Match is expected to be imported by user from solid-js
 
     let when_expr = get_prop_expr(element, "when");
     let children = get_children_expr_transformed(element, context, transform_child);
@@ -174,7 +173,7 @@ fn transform_index<'a, 'b>(
     _transform_child: ChildTransformer<'a, 'b>,
 ) {
     context.register_helper("createComponent");
-    context.register_helper("Index");
+    // Note: Index is expected to be imported by user from solid-js
 
     let each_expr = get_prop_expr(element, "each");
     let children = get_children_callback(element);
@@ -195,7 +194,7 @@ fn transform_suspense<'a, 'b>(
     transform_child: ChildTransformer<'a, 'b>,
 ) {
     context.register_helper("createComponent");
-    context.register_helper("Suspense");
+    // Note: Suspense is expected to be imported by user from solid-js
 
     let fallback_expr = get_prop_expr(element, "fallback");
     let children = get_children_expr_transformed(element, context, transform_child);
@@ -216,7 +215,7 @@ fn transform_portal<'a, 'b>(
     transform_child: ChildTransformer<'a, 'b>,
 ) {
     context.register_helper("createComponent");
-    context.register_helper("Portal");
+    // Note: Portal is expected to be imported by user from solid-js/web
 
     let mount_expr = get_prop_expr(element, "mount");
     let children = get_children_expr_transformed(element, context, transform_child);
@@ -238,7 +237,7 @@ fn transform_dynamic<'a, 'b>(
     transform_child: ChildTransformer<'a, 'b>,
 ) {
     context.register_helper("createComponent");
-    context.register_helper("Dynamic");
+    // Note: Dynamic is expected to be imported by user from solid-js/web
 
     let component_expr = get_prop_expr(element, "component");
     let props = build_props(element, context, options, transform_child);
@@ -259,7 +258,7 @@ fn transform_error_boundary<'a, 'b>(
     transform_child: ChildTransformer<'a, 'b>,
 ) {
     context.register_helper("createComponent");
-    context.register_helper("ErrorBoundary");
+    // Note: ErrorBoundary is expected to be imported by user from solid-js
 
     let fallback_expr = get_prop_expr(element, "fallback");
     let children = get_children_expr_transformed(element, context, transform_child);
@@ -307,10 +306,8 @@ fn build_props<'a, 'b>(
                             let expr_str = expr_to_string(expr);
                             if is_dynamic(expr) {
                                 // Dynamic prop - use getter
-                                dynamic_props.push(format!(
-                                    "get {}() {{ return {}; }}",
-                                    key, expr_str
-                                ));
+                                dynamic_props
+                                    .push(format!("get {}() {{ return {}; }}", key, expr_str));
                             } else {
                                 static_props.push(format!("{}: {}", key, expr_str));
                             }
@@ -337,7 +334,8 @@ fn build_props<'a, 'b>(
     }
 
     // Combine all props
-    let all_props = static_props.into_iter()
+    let all_props = static_props
+        .into_iter()
         .chain(dynamic_props)
         .collect::<Vec<_>>()
         .join(", ");
@@ -371,7 +369,10 @@ fn get_children_expr_transformed<'a, 'b>(
             JSXChild::Text(text) => {
                 let content = common::expression::trim_whitespace(&text.value);
                 if !content.is_empty() {
-                    children.push(format!("\"{}\"", common::expression::escape_html(&content, false)));
+                    children.push(format!(
+                        "\"{}\"",
+                        common::expression::escape_html(&content, false)
+                    ));
                 }
             }
             JSXChild::ExpressionContainer(container) => {
@@ -387,11 +388,15 @@ fn get_children_expr_transformed<'a, 'b>(
                         children.push(result.exprs[0].code.clone());
                     } else if !result.template.is_empty() {
                         // This is a native element - output the IIFE that creates it
-                        let tmpl_idx = context.push_template(result.template.clone(), result.is_svg);
+                        let tmpl_idx =
+                            context.push_template(result.template.clone(), result.is_svg);
                         let tmpl_var = format!("_tmpl${}", tmpl_idx + 1);
                         let elem_var = context.generate_uid("el$");
 
-                        let mut code = format!("(() => {{ const {} = {}.cloneNode(true);", elem_var, tmpl_var);
+                        let mut code = format!(
+                            "(() => {{ const {} = {}.cloneNode(true);",
+                            elem_var, tmpl_var
+                        );
                         for expr in &result.exprs {
                             code.push_str(&format!(" {};", expr.code));
                         }
