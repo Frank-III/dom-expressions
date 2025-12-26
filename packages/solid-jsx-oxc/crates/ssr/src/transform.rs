@@ -86,7 +86,11 @@ impl<'a> SSRTransform<'a> {
         let tag_name = get_tag_name(element);
 
         if is_component(&tag_name) {
-            transform_component(element, &tag_name, &self.context, self.options)
+            // Create child transformer closure that can recursively transform children
+            let child_transformer = |child: &JSXChild<'a>| -> Option<SSRResult> {
+                self.transform_node(child)
+            };
+            transform_component(element, &tag_name, &self.context, self.options, &child_transformer)
         } else {
             transform_element(element, &tag_name, &self.context, self.options)
         }

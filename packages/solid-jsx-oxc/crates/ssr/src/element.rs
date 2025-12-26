@@ -248,7 +248,24 @@ fn transform_children<'a>(
             oxc_ast::ast::JSXChild::Element(child_elem) => {
                 let child_tag = common::get_tag_name(child_elem);
                 let child_result = if common::is_component(&child_tag) {
-                    crate::component::transform_component(child_elem, &child_tag, context, options)
+                    // Create a child transformer for nested components
+                    let child_transformer = |child: &oxc_ast::ast::JSXChild<'a>| -> Option<SSRResult> {
+                        match child {
+                            oxc_ast::ast::JSXChild::Element(el) => {
+                                let tag = common::get_tag_name(el);
+                                Some(if common::is_component(&tag) {
+                                    // For deeply nested components, use simple fallback
+                                    let mut r = SSRResult::new();
+                                    r.push_dynamic(format!("createComponent({}, {{}})", tag), false, false);
+                                    r
+                                } else {
+                                    transform_element(el, &tag, context, options)
+                                })
+                            }
+                            _ => None,
+                        }
+                    };
+                    crate::component::transform_component(child_elem, &child_tag, context, options, &child_transformer)
                 } else {
                     transform_element(child_elem, &child_tag, context, options)
                 };

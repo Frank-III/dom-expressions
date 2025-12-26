@@ -242,6 +242,8 @@ mod tests {
             (r#"<div>{count()}</div>"#, "dynamic child"),
             (r#"<For each={items}>{item => <li>{item}</li>}</For>"#, "For loop"),
             (r#"<Show when={visible}><div>shown</div></Show>"#, "Show conditional"),
+            (r#"<Button><span>icon</span> Click</Button>"#, "component with JSX child"),
+            (r#"<Show when={visible}><div class="content">shown</div></Show>"#, "Show with JSX child"),
         ];
 
         for (source, label) in cases {
@@ -263,6 +265,8 @@ mod tests {
             (r#"<div>{count()}</div>"#, "dynamic child"),
             (r#"<div onClick={handler}>click</div>"#, "event handler"),
             (r#"<Button onClick={handler}>Click me</Button>"#, "component"),
+            (r#"<Button><span>icon</span> Click</Button>"#, "component with JSX child"),
+            (r#"<Show when={visible}><div class="content">shown</div></Show>"#, "Show with JSX child"),
         ];
 
         for (source, label) in cases {

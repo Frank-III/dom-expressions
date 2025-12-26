@@ -5,12 +5,12 @@
 
 use oxc_ast::ast::{
     JSXElement, JSXAttributeItem, JSXAttributeName,
-    JSXAttributeValue,
+    JSXAttributeValue, JSXChild,
 };
 
-use common::{TransformOptions, is_built_in, expr_to_string};
+use common::{TransformOptions, is_built_in, is_dynamic, expr_to_string};
 
-use crate::ir::{SSRContext, SSRResult};
+use crate::ir::{SSRContext, SSRResult, SSRChildTransformer};
 
 /// Helper to find a prop value by name
 fn find_prop_expr<'a>(element: &'a JSXElement<'a>, name: &str) -> Option<String> {
@@ -39,36 +39,79 @@ fn find_prop_expr<'a>(element: &'a JSXElement<'a>, name: &str) -> Option<String>
     None
 }
 
-/// Get children callback expression
-fn get_children_expr<'a>(element: &'a JSXElement<'a>) -> String {
-    if element.children.is_empty() {
-        return "undefined".to_string();
+/// Get children callback expression (for For, Index)
+fn get_children_callback<'a>(element: &'a JSXElement<'a>) -> String {
+    for child in &element.children {
+        if let JSXChild::ExpressionContainer(container) = child {
+            if let Some(expr) = container.expression.as_expression() {
+                return expr_to_string(expr);
+            }
+        }
+    }
+    "() => undefined".to_string()
+}
+
+/// Get children as SSR expression with recursive transformation
+fn get_children_ssr<'a, 'b>(
+    element: &JSXElement<'a>,
+    transform_child: SSRChildTransformer<'a, 'b>,
+) -> String {
+    let mut children: Vec<String> = vec![];
+
+    for child in &element.children {
+        match child {
+            JSXChild::Text(text) => {
+                let content = common::expression::trim_whitespace(&text.value);
+                if !content.is_empty() {
+                    children.push(format!("\"{}\"", common::expression::escape_html(&content, false)));
+                }
+            }
+            JSXChild::ExpressionContainer(container) => {
+                if let Some(expr) = container.expression.as_expression() {
+                    children.push(expr_to_string(expr));
+                }
+            }
+            JSXChild::Element(_) | JSXChild::Fragment(_) => {
+                // Transform the child JSX element/fragment
+                if let Some(result) = transform_child(child) {
+                    children.push(result.to_ssr_call());
+                }
+            }
+            JSXChild::Spread(spread) => {
+                children.push(expr_to_string(&spread.expression));
+            }
+        }
     }
 
-    // For now, we just serialize the children as a function
-    // The actual implementation would recursively transform children
-    "() => /* children */".to_string()
+    if children.len() == 1 {
+        format!("() => {}", children.pop().unwrap_or_default())
+    } else if children.is_empty() {
+        "undefined".to_string()
+    } else {
+        format!("() => [{}]", children.join(", "))
+    }
 }
 
 /// Transform a component for SSR
-pub fn transform_component<'a>(
+pub fn transform_component<'a, 'b>(
     element: &JSXElement<'a>,
     tag_name: &str,
     context: &SSRContext,
     options: &TransformOptions<'a>,
+    transform_child: SSRChildTransformer<'a, 'b>,
 ) -> SSRResult {
     let mut result = SSRResult::new();
 
     // Check if this is a built-in (For, Show, etc.)
     if is_built_in(tag_name) {
-        return transform_builtin(element, tag_name, context, options);
+        return transform_builtin(element, tag_name, context, transform_child);
     }
 
     context.register_helper("createComponent");
     context.register_helper("escape");
 
     // Build props
-    let props = build_props(element, context, options);
+    let props = build_props(element, context, options, transform_child);
 
     // Generate createComponent call - will be escaped by parent
     result.push_dynamic(
@@ -81,11 +124,11 @@ pub fn transform_component<'a>(
 }
 
 /// Transform built-in control flow components for SSR
-fn transform_builtin<'a>(
+fn transform_builtin<'a, 'b>(
     element: &JSXElement<'a>,
     tag_name: &str,
     context: &SSRContext,
-    _options: &TransformOptions<'a>,
+    transform_child: SSRChildTransformer<'a, 'b>,
 ) -> SSRResult {
     let mut result = SSRResult::new();
 
@@ -96,7 +139,7 @@ fn transform_builtin<'a>(
         "For" => {
             context.register_helper("For");
             let each = find_prop_expr(element, "each").unwrap_or("[]".to_string());
-            let children = get_children_expr(element);
+            let children = get_children_callback(element);
             result.push_dynamic(
                 format!("createComponent(For, {{ each: {}, children: {} }})", each, children),
                 false,
@@ -108,7 +151,7 @@ fn transform_builtin<'a>(
             context.register_helper("Show");
             let when = find_prop_expr(element, "when").unwrap_or("false".to_string());
             let fallback = find_prop_expr(element, "fallback").unwrap_or("undefined".to_string());
-            let children = get_children_expr(element);
+            let children = get_children_ssr(element, transform_child);
             result.push_dynamic(
                 format!("createComponent(Show, {{ when: {}, fallback: {}, children: {} }})", when, fallback, children),
                 false,
@@ -118,7 +161,7 @@ fn transform_builtin<'a>(
 
         "Switch" => {
             context.register_helper("Switch");
-            let children = get_children_expr(element);
+            let children = get_children_ssr(element, transform_child);
             result.push_dynamic(
                 format!("createComponent(Switch, {{ children: {} }})", children),
                 false,
@@ -129,7 +172,7 @@ fn transform_builtin<'a>(
         "Match" => {
             context.register_helper("Match");
             let when = find_prop_expr(element, "when").unwrap_or("false".to_string());
-            let children = get_children_expr(element);
+            let children = get_children_ssr(element, transform_child);
             result.push_dynamic(
                 format!("createComponent(Match, {{ when: {}, children: {} }})", when, children),
                 false,
@@ -140,7 +183,7 @@ fn transform_builtin<'a>(
         "Index" => {
             context.register_helper("Index");
             let each = find_prop_expr(element, "each").unwrap_or("[]".to_string());
-            let children = get_children_expr(element);
+            let children = get_children_callback(element);
             result.push_dynamic(
                 format!("createComponent(Index, {{ each: {}, children: {} }})", each, children),
                 false,
@@ -151,7 +194,7 @@ fn transform_builtin<'a>(
         "Suspense" => {
             context.register_helper("Suspense");
             let fallback = find_prop_expr(element, "fallback").unwrap_or("undefined".to_string());
-            let children = get_children_expr(element);
+            let children = get_children_ssr(element, transform_child);
             result.push_dynamic(
                 format!("createComponent(Suspense, {{ fallback: {}, children: {} }})", fallback, children),
                 false,
@@ -162,7 +205,7 @@ fn transform_builtin<'a>(
         "Portal" => {
             // Portal in SSR just renders children (no mount target on server)
             context.register_helper("Portal");
-            let children = get_children_expr(element);
+            let children = get_children_ssr(element, transform_child);
             result.push_dynamic(
                 format!("createComponent(Portal, {{ children: {} }})", children),
                 false,
@@ -183,7 +226,7 @@ fn transform_builtin<'a>(
         "ErrorBoundary" => {
             context.register_helper("ErrorBoundary");
             let fallback = find_prop_expr(element, "fallback").unwrap_or("undefined".to_string());
-            let children = get_children_expr(element);
+            let children = get_children_ssr(element, transform_child);
             result.push_dynamic(
                 format!("createComponent(ErrorBoundary, {{ fallback: {}, children: {} }})", fallback, children),
                 false,
@@ -194,7 +237,7 @@ fn transform_builtin<'a>(
         "NoHydration" => {
             // Special SSR component - renders children without hydration markers
             context.register_helper("NoHydration");
-            let children = get_children_expr(element);
+            let children = get_children_ssr(element, transform_child);
             result.push_dynamic(
                 format!("createComponent(NoHydration, {{ children: {} }})", children),
                 false,
@@ -216,14 +259,15 @@ fn transform_builtin<'a>(
 }
 
 /// Build props object for a component
-fn build_props<'a>(
+fn build_props<'a, 'b>(
     element: &JSXElement<'a>,
     context: &SSRContext,
     _options: &TransformOptions<'a>,
+    transform_child: SSRChildTransformer<'a, 'b>,
 ) -> String {
     let mut static_props: Vec<String> = vec![];
     let mut dynamic_props: Vec<String> = vec![];
-    let mut has_spread = false;
+    let mut spreads: Vec<String> = vec![];
 
     for attr in &element.opening_element.attributes {
         match attr {
@@ -235,7 +279,7 @@ fn build_props<'a>(
                     }
                 };
 
-                // Skip event handlers in SSR
+                // Skip event handlers and refs in SSR
                 if key.starts_with("on") || key == "ref" || key.starts_with("use:") {
                     continue;
                 }
@@ -247,11 +291,14 @@ fn build_props<'a>(
                     Some(JSXAttributeValue::ExpressionContainer(container)) => {
                         if let Some(expr) = container.expression.as_expression() {
                             let expr_str = expr_to_string(expr);
-                            // For SSR, we still need getters for lazy evaluation
-                            dynamic_props.push(format!(
-                                "get {}() {{ return {}; }}",
-                                key, expr_str
-                            ));
+                            if is_dynamic(expr) {
+                                dynamic_props.push(format!(
+                                    "get {}() {{ return {}; }}",
+                                    key, expr_str
+                                ));
+                            } else {
+                                static_props.push(format!("{}: {}", key, expr_str));
+                            }
                         }
                     }
                     None => {
@@ -260,30 +307,36 @@ fn build_props<'a>(
                     _ => {}
                 }
             }
-            JSXAttributeItem::SpreadAttribute(_) => {
-                has_spread = true;
+            JSXAttributeItem::SpreadAttribute(spread) => {
+                spreads.push(expr_to_string(&spread.argument));
             }
         }
     }
 
     // Handle children
     if !element.children.is_empty() {
-        dynamic_props.push("get children() { return /* children */; }".to_string());
+        let children = get_children_ssr(element, transform_child);
+        dynamic_props.push(format!("get children() {{ return {}; }}", children));
     }
 
+    // Combine all props
+    let all_props = static_props.into_iter()
+        .chain(dynamic_props)
+        .collect::<Vec<_>>()
+        .join(", ");
+
     // Combine props
-    if has_spread {
+    if !spreads.is_empty() {
         context.register_helper("mergeProps");
-        format!(
-            "mergeProps(/* spread */, {{ {} }})",
-            static_props.into_iter().chain(dynamic_props).collect::<Vec<_>>().join(", ")
-        )
-    } else if dynamic_props.is_empty() && static_props.is_empty() {
+        let spread_list = spreads.join(", ");
+        if all_props.is_empty() {
+            format!("mergeProps({})", spread_list)
+        } else {
+            format!("mergeProps({}, {{ {} }})", spread_list, all_props)
+        }
+    } else if all_props.is_empty() {
         "{}".to_string()
     } else {
-        format!(
-            "{{ {} }}",
-            static_props.into_iter().chain(dynamic_props).collect::<Vec<_>>().join(", ")
-        )
+        format!("{{ {} }}", all_props)
     }
 }

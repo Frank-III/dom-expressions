@@ -8,26 +8,27 @@ use oxc_ast::ast::{
 
 use common::{TransformOptions, is_built_in, is_dynamic, expr_to_string};
 
-use crate::ir::{BlockContext, TransformResult, Expr};
+use crate::ir::{BlockContext, TransformResult, Expr, ChildTransformer};
 
 /// Transform a component element
-pub fn transform_component<'a>(
+pub fn transform_component<'a, 'b>(
     element: &JSXElement<'a>,
     tag_name: &str,
     context: &BlockContext,
     options: &TransformOptions<'a>,
+    transform_child: ChildTransformer<'a, 'b>,
 ) -> TransformResult {
     let mut result = TransformResult::default();
 
     // Check if this is a built-in (For, Show, etc.)
     if is_built_in(tag_name) {
-        return transform_builtin(element, tag_name, context, options);
+        return transform_builtin(element, tag_name, context, options, transform_child);
     }
 
     context.register_helper("createComponent");
 
     // Build props object
-    let props = build_props(element, context, options);
+    let props = build_props(element, context, options, transform_child);
 
     // Generate createComponent call
     result.exprs.push(Expr {
@@ -38,24 +39,25 @@ pub fn transform_component<'a>(
 }
 
 /// Transform built-in control flow components
-fn transform_builtin<'a>(
+fn transform_builtin<'a, 'b>(
     element: &JSXElement<'a>,
     tag_name: &str,
     context: &BlockContext,
     options: &TransformOptions<'a>,
+    transform_child: ChildTransformer<'a, 'b>,
 ) -> TransformResult {
     let mut result = TransformResult::default();
 
     match tag_name {
-        "For" => transform_for(element, &mut result, context, options),
-        "Show" => transform_show(element, &mut result, context, options),
-        "Switch" => transform_switch(element, &mut result, context, options),
-        "Match" => transform_match(element, &mut result, context, options),
-        "Index" => transform_index(element, &mut result, context, options),
-        "Suspense" => transform_suspense(element, &mut result, context, options),
-        "Portal" => transform_portal(element, &mut result, context, options),
-        "Dynamic" => transform_dynamic(element, &mut result, context, options),
-        "ErrorBoundary" => transform_error_boundary(element, &mut result, context, options),
+        "For" => transform_for(element, &mut result, context, transform_child),
+        "Show" => transform_show(element, &mut result, context, transform_child),
+        "Switch" => transform_switch(element, &mut result, context, transform_child),
+        "Match" => transform_match(element, &mut result, context, transform_child),
+        "Index" => transform_index(element, &mut result, context, transform_child),
+        "Suspense" => transform_suspense(element, &mut result, context, transform_child),
+        "Portal" => transform_portal(element, &mut result, context, transform_child),
+        "Dynamic" => transform_dynamic(element, &mut result, context, options, transform_child),
+        "ErrorBoundary" => transform_error_boundary(element, &mut result, context, transform_child),
         _ => {
             // Fallback to regular component transform
             context.register_helper("createComponent");
@@ -68,27 +70,29 @@ fn transform_builtin<'a>(
     result
 }
 
-/// Transform <For each={...}>{item => ...}</For>
-fn transform_for<'a>(
-    element: &JSXElement<'a>,
-    result: &mut TransformResult,
-    context: &BlockContext,
-    _options: &TransformOptions<'a>,
-) {
-    context.register_helper("createComponent");
-    context.register_helper("For");
-
-    // Get the 'each' prop
-    let each_expr = find_prop(element, "each")
+/// Helper to get a prop expression
+fn get_prop_expr<'a>(element: &JSXElement<'a>, name: &str) -> String {
+    find_prop(element, name)
         .and_then(|attr| attr.value.as_ref())
         .and_then(|v| match v {
             JSXAttributeValue::ExpressionContainer(c) => c.expression.as_expression(),
             _ => None,
         })
         .map(|e| expr_to_string(e))
-        .unwrap_or_else(|| "undefined".to_string());
+        .unwrap_or_else(|| "undefined".to_string())
+}
 
-    // Get the children (callback function)
+/// Transform <For each={...}>{item => ...}</For>
+fn transform_for<'a, 'b>(
+    element: &JSXElement<'a>,
+    result: &mut TransformResult,
+    context: &BlockContext,
+    _transform_child: ChildTransformer<'a, 'b>,
+) {
+    context.register_helper("createComponent");
+    context.register_helper("For");
+
+    let each_expr = get_prop_expr(element, "each");
     let children = get_children_callback(element);
 
     result.exprs.push(Expr {
@@ -100,166 +104,180 @@ fn transform_for<'a>(
 }
 
 /// Transform <Show when={...} fallback={...}>...</Show>
-fn transform_show<'a>(
+fn transform_show<'a, 'b>(
     element: &JSXElement<'a>,
     result: &mut TransformResult,
     context: &BlockContext,
-    _options: &TransformOptions<'a>,
+    transform_child: ChildTransformer<'a, 'b>,
 ) {
     context.register_helper("createComponent");
     context.register_helper("Show");
 
-    // Get the 'when' prop
-    let when_expr = find_prop(element, "when")
-        .and_then(|attr| attr.value.as_ref())
-        .and_then(|v| match v {
-            JSXAttributeValue::ExpressionContainer(c) => c.expression.as_expression(),
-            _ => None,
-        })
-        .map(|e| expr_to_string(e))
-        .unwrap_or_else(|| "undefined".to_string());
-
-    // Get the 'fallback' prop
-    let fallback_expr = find_prop(element, "fallback")
-        .and_then(|attr| attr.value.as_ref())
-        .and_then(|v| match v {
-            JSXAttributeValue::ExpressionContainer(c) => c.expression.as_expression(),
-            _ => None,
-        })
-        .map(|e| expr_to_string(e))
-        .unwrap_or_else(|| "undefined".to_string());
-
-    // Get the children
-    let children = get_children_callback(element);
+    let when_expr = get_prop_expr(element, "when");
+    let fallback_expr = get_prop_expr(element, "fallback");
+    let children = get_children_expr_transformed(element, context, transform_child);
 
     result.exprs.push(Expr {
         code: format!(
-            "createComponent(Show, {{ when: {}, fallback: {}, children: {} }})",
+            "createComponent(Show, {{ when: {}, fallback: {}, get children() {{ return {}; }} }})",
             when_expr, fallback_expr, children
         ),
     });
 }
 
 /// Transform <Switch>...</Switch>
-fn transform_switch<'a>(
+fn transform_switch<'a, 'b>(
     element: &JSXElement<'a>,
     result: &mut TransformResult,
     context: &BlockContext,
-    options: &TransformOptions<'a>,
+    transform_child: ChildTransformer<'a, 'b>,
 ) {
     context.register_helper("createComponent");
     context.register_helper("Switch");
 
+    let children = get_children_expr_transformed(element, context, transform_child);
+
     result.exprs.push(Expr {
-        code: format!("_createComponent(_Switch, {{ children: /* Match children */ }})"),
+        code: format!(
+            "createComponent(Switch, {{ get children() {{ return {}; }} }})",
+            children
+        ),
     });
 }
 
 /// Transform <Match when={...}>...</Match>
-fn transform_match<'a>(
+fn transform_match<'a, 'b>(
     element: &JSXElement<'a>,
     result: &mut TransformResult,
     context: &BlockContext,
-    options: &TransformOptions<'a>,
+    transform_child: ChildTransformer<'a, 'b>,
 ) {
     context.register_helper("createComponent");
     context.register_helper("Match");
 
+    let when_expr = get_prop_expr(element, "when");
+    let children = get_children_expr_transformed(element, context, transform_child);
+
     result.exprs.push(Expr {
-        code: format!("_createComponent(_Match, {{ when: /* when */, children: /* children */ }})"),
+        code: format!(
+            "createComponent(Match, {{ when: {}, get children() {{ return {}; }} }})",
+            when_expr, children
+        ),
     });
 }
 
 /// Transform <Index each={...}>{(item, index) => ...}</Index>
-fn transform_index<'a>(
+fn transform_index<'a, 'b>(
     element: &JSXElement<'a>,
     result: &mut TransformResult,
     context: &BlockContext,
-    options: &TransformOptions<'a>,
+    _transform_child: ChildTransformer<'a, 'b>,
 ) {
     context.register_helper("createComponent");
     context.register_helper("Index");
 
+    let each_expr = get_prop_expr(element, "each");
+    let children = get_children_callback(element);
+
     result.exprs.push(Expr {
         code: format!(
-            "_createComponent(_Index, {{ each: /* each */, children: /* callback */ }})"
+            "createComponent(Index, {{ each: {}, children: {} }})",
+            each_expr, children
         ),
     });
 }
 
 /// Transform <Suspense fallback={...}>...</Suspense>
-fn transform_suspense<'a>(
+fn transform_suspense<'a, 'b>(
     element: &JSXElement<'a>,
     result: &mut TransformResult,
     context: &BlockContext,
-    options: &TransformOptions<'a>,
+    transform_child: ChildTransformer<'a, 'b>,
 ) {
     context.register_helper("createComponent");
     context.register_helper("Suspense");
 
+    let fallback_expr = get_prop_expr(element, "fallback");
+    let children = get_children_expr_transformed(element, context, transform_child);
+
     result.exprs.push(Expr {
         code: format!(
-            "_createComponent(_Suspense, {{ fallback: /* fallback */, children: /* children */ }})"
+            "createComponent(Suspense, {{ fallback: {}, get children() {{ return {}; }} }})",
+            fallback_expr, children
         ),
     });
 }
 
 /// Transform <Portal mount={...}>...</Portal>
-fn transform_portal<'a>(
+fn transform_portal<'a, 'b>(
     element: &JSXElement<'a>,
     result: &mut TransformResult,
     context: &BlockContext,
-    options: &TransformOptions<'a>,
+    transform_child: ChildTransformer<'a, 'b>,
 ) {
     context.register_helper("createComponent");
     context.register_helper("Portal");
 
+    let mount_expr = get_prop_expr(element, "mount");
+    let children = get_children_expr_transformed(element, context, transform_child);
+
     result.exprs.push(Expr {
         code: format!(
-            "_createComponent(_Portal, {{ mount: /* mount */, children: /* children */ }})"
+            "createComponent(Portal, {{ mount: {}, get children() {{ return {}; }} }})",
+            mount_expr, children
         ),
     });
 }
 
 /// Transform <Dynamic component={...} {...props} />
-fn transform_dynamic<'a>(
+fn transform_dynamic<'a, 'b>(
     element: &JSXElement<'a>,
     result: &mut TransformResult,
     context: &BlockContext,
     options: &TransformOptions<'a>,
+    transform_child: ChildTransformer<'a, 'b>,
 ) {
     context.register_helper("createComponent");
     context.register_helper("Dynamic");
 
+    let component_expr = get_prop_expr(element, "component");
+    let props = build_props(element, context, options, transform_child);
+
     result.exprs.push(Expr {
         code: format!(
-            "_createComponent(_Dynamic, {{ component: /* component */, .../* props */ }})"
+            "createComponent(Dynamic, {{ component: {}, ...{} }})",
+            component_expr, props
         ),
     });
 }
 
 /// Transform <ErrorBoundary fallback={...}>...</ErrorBoundary>
-fn transform_error_boundary<'a>(
+fn transform_error_boundary<'a, 'b>(
     element: &JSXElement<'a>,
     result: &mut TransformResult,
     context: &BlockContext,
-    options: &TransformOptions<'a>,
+    transform_child: ChildTransformer<'a, 'b>,
 ) {
     context.register_helper("createComponent");
     context.register_helper("ErrorBoundary");
 
+    let fallback_expr = get_prop_expr(element, "fallback");
+    let children = get_children_expr_transformed(element, context, transform_child);
+
     result.exprs.push(Expr {
         code: format!(
-            "_createComponent(_ErrorBoundary, {{ fallback: /* fallback */, children: /* children */ }})"
+            "createComponent(ErrorBoundary, {{ fallback: {}, get children() {{ return {}; }} }})",
+            fallback_expr, children
         ),
     });
 }
 
 /// Build props object for a component
-fn build_props<'a>(
+fn build_props<'a, 'b>(
     element: &JSXElement<'a>,
     context: &BlockContext,
     _options: &TransformOptions<'a>,
+    transform_child: ChildTransformer<'a, 'b>,
 ) -> String {
     let mut static_props: Vec<String> = vec![];
     let mut dynamic_props: Vec<String> = vec![];
@@ -274,6 +292,11 @@ fn build_props<'a>(
                         format!("{}:{}", ns.namespace.name, ns.name.name)
                     }
                 };
+
+                // Skip component and children props for Dynamic
+                if key == "component" || key == "children" {
+                    continue;
+                }
 
                 match &attr.value {
                     Some(JSXAttributeValue::StringLiteral(lit)) => {
@@ -307,7 +330,7 @@ fn build_props<'a>(
 
     // Handle children
     if !element.children.is_empty() {
-        let children_expr = get_children_expr(element, context);
+        let children_expr = get_children_expr_transformed(element, context, transform_child);
         if !children_expr.is_empty() {
             dynamic_props.push(format!("get children() {{ return {}; }}", children_expr));
         }
@@ -335,10 +358,11 @@ fn build_props<'a>(
     }
 }
 
-/// Get children as an expression
-fn get_children_expr<'a>(
+/// Get children as an expression with recursive transformation
+fn get_children_expr_transformed<'a, 'b>(
     element: &JSXElement<'a>,
-    _context: &BlockContext,
+    context: &BlockContext,
+    transform_child: ChildTransformer<'a, 'b>,
 ) -> String {
     let mut children: Vec<String> = vec![];
 
@@ -355,20 +379,26 @@ fn get_children_expr<'a>(
                     children.push(expr_to_string(expr));
                 }
             }
-            JSXChild::Element(child_elem) => {
-                // Nested JSX element - this will be transformed by the traversal
-                // For now, output a placeholder that represents the element call
-                let tag = common::get_tag_name(child_elem);
-                if common::is_component(&tag) {
-                    // Component
-                    children.push(format!("/* <{}> */", tag));
-                } else {
-                    // Native element - would be a template clone
-                    children.push(format!("/* <{}> */", tag));
+            JSXChild::Element(_) | JSXChild::Fragment(_) => {
+                // Transform the child JSX element/fragment
+                if let Some(result) = transform_child(child) {
+                    // Get the generated code from the result
+                    if !result.exprs.is_empty() {
+                        children.push(result.exprs[0].code.clone());
+                    } else if !result.template.is_empty() {
+                        // This is a native element - output the IIFE that creates it
+                        let tmpl_idx = context.push_template(result.template.clone(), result.is_svg);
+                        let tmpl_var = format!("_tmpl${}", tmpl_idx + 1);
+                        let elem_var = context.generate_uid("el$");
+
+                        let mut code = format!("(() => {{ const {} = {}.cloneNode(true);", elem_var, tmpl_var);
+                        for expr in &result.exprs {
+                            code.push_str(&format!(" {};", expr.code));
+                        }
+                        code.push_str(&format!(" return {}; }})()", elem_var));
+                        children.push(code);
+                    }
                 }
-            }
-            JSXChild::Fragment(_) => {
-                children.push("/* fragment */".to_string());
             }
             JSXChild::Spread(spread) => {
                 children.push(expr_to_string(&spread.expression));

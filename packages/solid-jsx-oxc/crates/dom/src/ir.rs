@@ -4,6 +4,10 @@
 
 use std::cell::RefCell;
 use indexmap::IndexSet;
+use oxc_ast::ast::JSXChild;
+
+/// Function type for transforming child JSX elements
+pub type ChildTransformer<'a, 'b> = &'b dyn Fn(&JSXChild<'a>) -> Option<TransformResult>;
 
 /// The result of transforming a JSX node
 #[derive(Default)]
