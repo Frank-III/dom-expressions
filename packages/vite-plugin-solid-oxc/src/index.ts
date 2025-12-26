@@ -148,7 +148,7 @@ export default function solidOxc(options: SolidOxcOptions = {}): Plugin {
       const generate = isSSR ? 'ssr' : opts.generate;
 
       try {
-        const result = solidJsxOxc.transform(code, {
+        const result = solidJsxOxc.transformJsx(code, {
           filename: id,
           moduleName: opts.moduleName,
           generate,
