@@ -37,6 +37,33 @@ export default defineConfig({
 });
 ```
 
+#### SolidStart / TanStack Start / deps that ship JSX
+
+By default, `vite-plugin-solid-oxc` excludes `node_modules` for performance. Some Solid ecosystem packages ship `.jsx/.tsx` in `node_modules` (common in SSR frameworks and routers), so those dependencies must be transformed too.
+
+If you see JSX parse errors coming from a dependency, allowlist the packages that ship JSX/TSX:
+
+```js
+// vite.config.js
+import { defineConfig } from 'vite';
+import solidOxc from 'vite-plugin-solid-oxc';
+
+export default defineConfig({
+  plugins: [
+    solidOxc({
+      // Keep most of node_modules excluded, but compile these packages.
+      exclude: [
+        /node_modules\/(?!(?:@solidjs\/[^/]*|@tanstack\/solid-start|@tanstack\/solid-router[^/]*|lucide-solid)\/)/,
+      ],
+      // For SSR frameworks that hydrate on the client, you likely also want:
+      // hydratable: true,
+    }),
+  ],
+});
+```
+
+To compile *all* dependencies (closer to `vite-plugin-solid` behavior), use `exclude: []`.
+
 ### With Rolldown
 
 ```bash
