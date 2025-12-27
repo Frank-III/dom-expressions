@@ -31,10 +31,8 @@
   "author": "SolidJS Contributors",
   "license": "MIT",
   "peerDependencies": {
-    "vite": "^5.0.0 || ^6.0.0"
-  },
-  "dependencies": {
-    "solid-jsx-oxc": "workspace:*"
+    "solid-jsx-oxc": "*",
+    "vite": "^5.0.0 || ^6.0.0 || ^7.0.0"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",

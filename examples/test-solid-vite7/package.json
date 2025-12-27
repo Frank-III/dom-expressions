@@ -12,8 +12,9 @@
     "solid-js": "^1.9.10"
   },
   "devDependencies": {
+    "solid-jsx-oxc": "file:../../packages/solid-jsx-oxc",
     "typescript": "~5.3.3",
     "vite": "^6.0.0",
-    "vite-plugin-solid-oxc": "workspace:*"
+    "vite-plugin-solid-oxc": "file:../../packages/vite-plugin-solid-oxc"
   }
 }

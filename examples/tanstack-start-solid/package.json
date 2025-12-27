@@ -1,0 +1,32 @@
+{
+  "name": "tanstack-start-solid",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite dev --port 3000",
+    "build": "vite build",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "start": "node .output/server/index.mjs"
+  },
+  "dependencies": {
+    "@tailwindcss/vite": "^4.0.6",
+    "@tanstack/router-plugin": "^1.133.21",
+    "@tanstack/solid-router": "^1.133.20",
+    "@tanstack/solid-router-devtools": "^1.133.20",
+    "@tanstack/solid-router-ssr-query": "^1.132.25",
+    "@tanstack/solid-start": "^1.132.25",
+    "lucide-solid": "^0.544.0",
+    "nitro": "latest",
+    "solid-js": "^1.9.9",
+    "tailwindcss": "^4.0.6",
+    "vite": "^7.1.7",
+    "vite-tsconfig-paths": "^5.1.4"
+  },
+  "devDependencies": {
+    "@tanstack/devtools-vite": "^0.3.11",
+    "solid-jsx-oxc": "file:../../packages/solid-jsx-oxc",
+    "typescript": "^5.7.2",
+    "vite-plugin-solid-oxc": "file:../../packages/vite-plugin-solid-oxc"
+  }
+}

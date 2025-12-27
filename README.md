@@ -133,10 +133,12 @@ console.log(result.code);
 | Example | Description |
 |---------|-------------|
 | [test-solid-vite7](./examples/test-solid-vite7) | Basic Vite + SolidJS app |
+| [tanstack-start-solid](./examples/tanstack-start-solid) | TanStack Start with SSR |
 
 ```bash
 # Run an example
-cd examples/test-solid-vite7
+cd examples/tanstack-start-solid
+bun install
 bun run dev
 ```
 
