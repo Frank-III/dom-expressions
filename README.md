@@ -128,6 +128,18 @@ console.log(result.code);
 | [babel-plugin-jsx-dom-expressions](./packages/babel-plugin-jsx-dom-expressions) | Original Babel plugin (for reference) |
 | [dom-expressions](./packages/dom-expressions) | Runtime library |
 
+## Examples
+
+| Example | Description |
+|---------|-------------|
+| [test-solid-vite7](./examples/test-solid-vite7) | Basic Vite + SolidJS app |
+
+```bash
+# Run an example
+cd examples/test-solid-vite7
+bun run dev
+```
+
 ## Development
 
 ### Prerequisites

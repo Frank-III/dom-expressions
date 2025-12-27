@@ -10,7 +10,8 @@
   },
   "private": true,
   "workspaces": [
-    "packages/*"
+    "packages/*",
+    "examples/*"
   ],
   "scripts": {
     "postinstall": "lerna bootstrap --no-ci",
