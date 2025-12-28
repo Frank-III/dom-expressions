@@ -11,3 +11,6 @@ packages/babel-plugin-jsx-dom-expressions/index.js
 # Rust build artifacts
 target/
 *.node
+
+# pnpm (project uses npm/lerna workspaces)
+pnpm-lock.yaml
