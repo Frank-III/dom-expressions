@@ -47,6 +47,12 @@ pub struct TransformResult {
 
     /// Whether this result is just text
     pub text: bool,
+
+    /// Whether this result needs memo() wrapping (for fragment expressions)
+    pub needs_memo: bool,
+
+    /// Individual child codes for fragments (when children need to be in an array)
+    pub child_codes: Vec<String>,
 }
 
 /// A variable declaration

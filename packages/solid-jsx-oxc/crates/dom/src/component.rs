@@ -297,6 +297,21 @@ fn build_props<'a, 'b>(
                     continue;
                 }
 
+                // Handle ref prop specially - needs ref forwarding
+                if key == "ref" {
+                    if let Some(JSXAttributeValue::ExpressionContainer(container)) = &attr.value {
+                        if let Some(expr) = container.expression.as_expression() {
+                            let expr_str = expr_to_string(expr);
+                            // Generate ref forwarding function that handles both callbacks and variables
+                            dynamic_props.push(format!(
+                                "ref(r$) {{ var _ref$ = {}; typeof _ref$ === \"function\" ? _ref$(r$) : {} = r$; }}",
+                                expr_str, expr_str
+                            ));
+                        }
+                    }
+                    continue;
+                }
+
                 match &attr.value {
                     Some(JSXAttributeValue::StringLiteral(lit)) => {
                         static_props.push(format!("{}: \"{}\"", key, lit.value));

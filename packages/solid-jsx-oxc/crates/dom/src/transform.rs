@@ -115,14 +115,82 @@ impl<'a> SolidTransform<'a> {
         info: &TransformInfo,
     ) -> TransformResult {
         let mut result = TransformResult::default();
+        let mut has_expression_child = false;
+        let mut child_results: Vec<TransformResult> = Vec::new();
 
         for child in &fragment.children {
+            // Track if we have expression container children (need memo)
+            if matches!(child, JSXChild::ExpressionContainer(_)) {
+                has_expression_child = true;
+            }
+
             if let Some(child_result) = self.transform_node(child, info) {
-                // Merge child results
+                child_results.push(child_result);
+            }
+        }
+
+        // Handle different fragment scenarios
+        if child_results.is_empty() {
+            // Empty fragment
+            return result;
+        }
+
+        if child_results.len() == 1 {
+            let mut single_result = child_results.pop().unwrap();
+            // For single expression child, check if we need memo
+            if single_result.template.is_empty() && !single_result.exprs.is_empty() && has_expression_child {
+                single_result.needs_memo = true;
+            }
+            return single_result;
+        }
+
+        // Multiple children - check if we need array output
+        let has_text_child = child_results.iter().any(|r| r.text);
+        let has_element_child = child_results.iter().any(|r| !r.template.is_empty() && !r.text);
+        let has_component_child = child_results.iter().any(|r| r.template.is_empty() && !r.exprs.is_empty());
+
+        // Use array output when mixing different types of children
+        let needs_array = (has_text_child && has_element_child)
+            || (has_text_child && has_component_child)
+            || (has_element_child && has_component_child)
+            || has_component_child;
+
+        if needs_array {
+            // Mixed children: need array output
+            // Generate code for each child independently
+            for child_result in &child_results {
+                if child_result.text {
+                    // Text children become string literals
+                    result.child_codes.push(format!("\"{}\"", child_result.template));
+                } else {
+                    let code = self.build_dom_output(child_result);
+                    if !code.is_empty() {
+                        result.child_codes.push(code);
+                    }
+                }
+            }
+        } else if has_element_child {
+            // All native element children - merge templates
+            for child_result in child_results {
                 result.template.push_str(&child_result.template);
                 result.declarations.extend(child_result.declarations);
                 result.exprs.extend(child_result.exprs);
                 result.dynamics.extend(child_result.dynamics);
+            }
+        } else if has_text_child {
+            // All text children - merge templates
+            for child_result in child_results {
+                result.template.push_str(&child_result.template);
+            }
+        } else {
+            // All expression children (non-component expressions like {x()})
+            for child_result in child_results {
+                result.exprs.extend(child_result.exprs);
+            }
+
+            // Wrap in memo for expression children
+            if info.top_level && has_expression_child {
+                result.needs_memo = true;
             }
         }
 
@@ -177,6 +245,18 @@ impl<'a> SolidTransform<'a> {
     fn build_dom_output(&self, result: &TransformResult) -> String {
         let mut code = String::new();
 
+        // Handle fragment with mixed children (array output)
+        if !result.child_codes.is_empty() {
+            code = format!("[{}]", result.child_codes.join(", "));
+            return code;
+        }
+
+        // Handle text-only result - just return the string literal
+        if result.text && !result.template.is_empty() {
+            // The template already contains escaped HTML, just wrap in quotes
+            return format!("\"{}\"", result.template);
+        }
+
         // If there's a template, we need to clone it
         if !result.template.is_empty() && !result.skip_template {
             // Register template helper
@@ -226,13 +306,21 @@ impl<'a> SolidTransform<'a> {
             code.push_str(&format!("  return {};\n", elem_var));
             code.push_str("})()");
         } else if !result.exprs.is_empty() {
-            // Just expressions (like a component call)
-            code = result
+            // Just expressions (like a component call or fragment)
+            let expr_code = result
                 .exprs
                 .iter()
                 .map(|e| e.code.clone())
                 .collect::<Vec<_>>()
                 .join(", ");
+
+            // Fragment expressions need memo wrapping for reactivity
+            if result.needs_memo {
+                self.context.register_helper("memo");
+                code = format!("memo({})", expr_code);
+            } else {
+                code = expr_code;
+            }
         }
 
         code
@@ -382,6 +470,12 @@ impl<'a> SolidTransform<'a> {
     ) -> Expression<'a> {
         let ast = ctx.ast;
         let span = Span::default();
+
+        // Handle text-only result directly as a string literal
+        if result.text && !result.template.is_empty() && result.child_codes.is_empty() {
+            let text = ast.allocator.alloc_str(&result.template);
+            return ast.expression_string_literal(span, text, None);
+        }
 
         // Generate the DOM code string
         let dom_code = self.build_dom_output(result);
