@@ -21,7 +21,7 @@ export interface SolidOxcOptions {
    * The module to import runtime helpers from
    * @default 'solid-js/web'
    */
-  moduleName?: string;
+  module_name?: string;
 
   /**
    * Generate mode
@@ -39,19 +39,19 @@ export interface SolidOxcOptions {
    * Delegate events for better performance
    * @default true
    */
-  delegateEvents?: boolean;
+  delegate_events?: boolean;
 
   /**
    * Wrap conditionals in memos
    * @default true
    */
-  wrapConditionals?: boolean;
+  wrap_conditionals?: boolean;
 
   /**
    * Pass context to custom elements
    * @default true
    */
-  contextToCustomElements?: boolean;
+  context_to_custom_elements?: boolean;
 
   /**
    * Built-in components that should be passed through
@@ -80,12 +80,12 @@ export interface SolidOxcOptions {
 const defaultOptions: SolidOxcOptions = {
   include: /\.[jt]sx$/,
   exclude: /node_modules/,
-  moduleName: 'solid-js/web',
+  module_name: 'solid-js/web',
   generate: 'dom',
   hydratable: false,
-  delegateEvents: true,
-  wrapConditionals: true,
-  contextToCustomElements: true,
+  delegate_events: true,
+  wrap_conditionals: true,
+  context_to_custom_elements: true,
   builtIns: [
     'For',
     'Show',
@@ -152,13 +152,13 @@ export default function solidOxc(options: SolidOxcOptions = {}): Plugin {
       try {
         const result = solidJsxOxc.transformJsx(code, {
           filename: fileId,
-          moduleName: opts.moduleName,
+          module_name: opts.module_name,
           generate,
           hydratable: opts.hydratable,
-          delegateEvents: opts.delegateEvents,
-          wrapConditionals: opts.wrapConditionals,
-          contextToCustomElements: opts.contextToCustomElements,
-          sourceMap: true,
+          delegate_events: opts.delegate_events,
+          wrap_conditionals: opts.wrap_conditionals,
+          context_to_custom_elements: opts.context_to_custom_elements,
+          source_map: true,
         });
 
         // Add HMR support in dev mode

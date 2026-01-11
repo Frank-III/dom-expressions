@@ -27,6 +27,13 @@ Listed in `BUILT_INS` but no specific transform function. Falls through to gener
 
 ## Medium Priority
 
+### 3. Source Maps
+**Status**: Partial - option exists (`source_map`) and codegen can emit a map, but mapping accuracy + tooling integration still need work.
+
+- Validate mappings for DOM/SSR transforms (inserted helpers, templates, wrapped expressions)
+- Provide bundler/plugin guidance for map chaining (Vite/Rollup/esbuild)
+- Add tests that assert map correctness (golden fixtures)
+
 ### 4. `@once` Static Marker
 **Location**: `crates/common/src/options.rs:50`
 

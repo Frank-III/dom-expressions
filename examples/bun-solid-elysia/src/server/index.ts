@@ -7,6 +7,21 @@ const port = process.env.PORT || 3000;
 const startTime = Date.now();
 let requestCount = 0;
 
+// Mock data - Tasks
+interface Task {
+  id: string;
+  title: string;
+  completed: boolean;
+  createdAt: string;
+}
+
+let tasks: Task[] = [
+  { id: '1', title: 'Learn Solid.js reactivity', completed: true, createdAt: '2024-01-01T10:00:00Z' },
+  { id: '2', title: 'Build SSR app with Elysia', completed: true, createdAt: '2024-01-02T14:30:00Z' },
+  { id: '3', title: 'Add createResource for data fetching', completed: false, createdAt: '2024-01-03T09:15:00Z' },
+  { id: '4', title: 'Implement optimistic updates', completed: false, createdAt: '2024-01-04T16:45:00Z' },
+];
+
 // CSS styles
 const styles = `
   * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -89,6 +104,62 @@ const styles = `
   }
   button:hover { background: #2563eb; }
   button:active { background: #1d4ed8; }
+  button.delete { background: #ef4444; }
+  button.delete:hover { background: #dc2626; }
+  
+  /* Tasks */
+  .tasks-container { display: flex; flex-direction: column; gap: 1rem; }
+  .task-form { display: flex; gap: 0.5rem; margin-bottom: 1rem; }
+  .task-form input {
+    flex: 1;
+    padding: 0.75rem 1rem;
+    font-size: 1rem;
+    background: #1e293b;
+    border: 1px solid #334155;
+    border-radius: 0.5rem;
+    color: #e2e8f0;
+    outline: none;
+  }
+  .task-form input:focus { border-color: #3b82f6; }
+  .task-form input::placeholder { color: #64748b; }
+  .task-list { display: flex; flex-direction: column; gap: 0.5rem; }
+  .task-item {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 1rem;
+    background: #1e293b;
+    border-radius: 0.5rem;
+    border: 1px solid #334155;
+    transition: border-color 0.2s;
+  }
+  .task-item:hover { border-color: #475569; }
+  .task-item.completed { opacity: 0.6; }
+  .task-item.pending { opacity: 0.85; }
+  .task-item.completed .task-title { text-decoration: line-through; color: #64748b; }
+  .task-checkbox {
+    width: 1.25rem;
+    height: 1.25rem;
+    cursor: pointer;
+    accent-color: #22c55e;
+  }
+  .task-label {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    cursor: pointer;
+  }
+  .task-title { flex: 1; }
+  .task-date { font-size: 0.75rem; color: #64748b; }
+  .task-actions button {
+    padding: 0.5rem 0.75rem;
+    font-size: 0.875rem;
+  }
+  .loading { color: #64748b; font-style: italic; }
+  .error { color: #ef4444; padding: 1rem; background: #1e293b; border-radius: 0.5rem; }
+  .empty { color: #64748b; text-align: center; padding: 2rem; }
+  .stats { display: flex; gap: 1rem; margin-bottom: 1rem; font-size: 0.875rem; color: #64748b; }
 `;
 
 // HTML template
@@ -122,6 +193,47 @@ const app = new Elysia()
         };
       })
       .get('/health', () => ({ status: 'ok', timestamp: new Date().toISOString() }))
+      // Tasks CRUD
+      .get('/tasks', () => tasks)
+      .post('/tasks', ({ body }) => {
+        const task: Task = {
+          id: crypto.randomUUID(),
+          title: body.title,
+          completed: false,
+          createdAt: new Date().toISOString(),
+        };
+        tasks = [task, ...tasks];
+        return task;
+      }, {
+        body: t.Object({
+          title: t.String({ minLength: 1 }),
+        }),
+      })
+      .patch('/tasks/:id', ({ params, body }) => {
+        const task = tasks.find((t) => t.id === params.id);
+        if (!task) {
+          throw new Error('Task not found');
+        }
+        if (body.completed !== undefined) task.completed = body.completed;
+        if (body.title !== undefined) task.title = body.title;
+        return task;
+      }, {
+        params: t.Object({ id: t.String() }),
+        body: t.Object({
+          completed: t.Optional(t.Boolean()),
+          title: t.Optional(t.String({ minLength: 1 })),
+        }),
+      })
+      .delete('/tasks/:id', ({ params }) => {
+        const index = tasks.findIndex((t) => t.id === params.id);
+        if (index === -1) {
+          throw new Error('Task not found');
+        }
+        const [deleted] = tasks.splice(index, 1);
+        return deleted;
+      }, {
+        params: t.Object({ id: t.String() }),
+      })
   )
 
   // Static files - dist folder

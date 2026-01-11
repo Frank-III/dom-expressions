@@ -1,6 +1,6 @@
 {
   "name": "solid-jsx-oxc",
-  "version": "0.1.0-alpha.1",
+  "version": "0.1.0-alpha.2",
   "description": "OXC-based JSX compiler for SolidJS",
   "main": "index.js",
   "types": "index.d.ts",

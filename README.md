@@ -174,6 +174,43 @@ cargo test
 bun run test
 ```
 
+### Publishing
+
+The repository includes an interactive publish script that uses Bun's Terminal API for real-time output:
+
+```bash
+# Dry run (default)
+bun publish-alpha.ts
+
+# Publish with interactive confirmation
+bun publish-alpha.ts --publish
+
+# Publish automatically (no confirmation)
+bun publish-alpha.ts --publish --yes
+
+# With 2FA
+bun publish-alpha.ts --publish --yes --otp 123456
+
+# Exclude packages
+bun publish-alpha.ts --exclude babel-plugin-jsx-dom-expressions --exclude dom-expressions
+
+# Custom tag
+bun publish-alpha.ts --tag beta --publish --yes
+
+# Options
+#   --tag <name>              Dist-tag (default: alpha)
+#   --only <pkg>              Only publish package and deps (repeatable)
+#   --exclude <pkg>           Exclude packages (repeatable)
+#   --publish                 Actually publish (default: dry-run)
+#   --yes                     Skip confirmation
+#   --tolerate-republish      Allow republishing same version
+#   --allow-dirty             Allow uncommitted changes
+#   --otp <code>              2FA code
+#   --list                    Show publish order and exit
+```
+
+The script generates an interactive HTML report with clickable npm package links at the end.
+
 ## License
 
 MIT
